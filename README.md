@@ -1,8 +1,28 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/avunel/banner-dark.svg">
+    <img src="assets/avunel/banner-light.svg" alt="avunel — temporal memory agent" width="720">
+  </picture>
+</p>
+
 # Avunel
 
 **A personal fork of [Hermes Agent](https://github.com/NousResearch/hermes-agent) by [Nous Research](https://nousresearch.com).** Same engine, my own skin and identity. Avunel tracks upstream Hermes and adds a few personal changes on top — nothing more.
 
 This is not a separate product. If you want the real thing, install Hermes Agent from upstream (see [Upstream](#upstream)).
+
+## Brand
+
+The wordmark is **avunel** in [DM Serif Display](https://fonts.google.com/specimen/DM+Serif+Display), the same typeface the desktop surfaces load. The terminal cannot render arbitrary fonts, so the CLI and TUI carry the identity through a monogram, spacing, and the palette instead.
+
+| Colour | Hex | Role |
+|--------|-----|------|
+| Burgundy | `#790D16` | Primary accent, active indicators |
+| Warm Ivory | `#F5EFE1` | Wordmark, foreground text |
+| Dusty Blue | `#AEC4D4` | Secondary accents, metadata |
+
+The terminal's own background is never overridden — the theme adapts to a dark or light terminal rather than imposing one.
+
 
 ## What Avunel changes
 
