@@ -14,16 +14,28 @@ jobs:
   check:
     name: JS & TS checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
 
-      - name: Set up the locked JS build toolchain
+      - name: Set up the locked JS and Python test toolchain
         id: node
         uses: ./.github/actions/setup-pm
         with:
-          toolchain: node
+          # Desktop checks execute real hermes_cli/PM helpers through
+          # HERMES_PYTHON and need ruamel plus the prepared uv runtime.
+          toolchain: all
+          extras: '[]'
+          test-environment: 'true'
+          cache-python: true
           cache-node: true
+
+      - name: Install zsh and a virtual display for Electron
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y zsh xvfb \
+            libgtk-3-0 libnotify4 libnss3 libxss1 libxtst6 \
+            xdg-utils libatspi2.0-0 libdrm2 libgbm1 libasound2t64
 
       - name: Install dependencies
         uses: ./.github/actions/retry
