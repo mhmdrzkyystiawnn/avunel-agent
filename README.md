@@ -30,10 +30,29 @@ The terminal's own background is never overridden — the theme adapts to a dark
 |------|--------|
 | **Skin** | An `avunel` theme (burgundy, warm ivory, dusty blue) with a DM Serif wordmark, used by the CLI and TUI. |
 | **Identity** | User-facing text says *Avunel* instead of *Hermes Agent*. Internal package/module names, `HERMES_*` environment variables, licensing, and Nous Research attribution are unchanged. |
+| **Data home** | New installs default to `~/.avunel/` (Windows: `%LOCALAPPDATA%\avunel`). `AVUNEL_HOME` is the canonical override; the legacy `HERMES_HOME` still works. A machine that already has only `~/.hermes/` keeps using it — existing data is never moved automatically. |
 | **Versioning** | Avunel has its own version, independent of Hermes. The upstream Hermes version and Git provenance (upstream commit, local commit, carried commits, dirty state) are shown alongside it, computed live from Git. |
 | **Temporal memory** | A `temporal` memory provider that extracts dated facts from conversation, with a guard so habits without a concrete time are not stored as temporal items. |
 
 Everything else — providers, tools, skills, gateway, cron, subagents — is upstream Hermes.
+
+## Data home
+
+Avunel keeps its state in its own directory:
+
+| Platform | Default |
+|----------|---------|
+| Linux / macOS | `~/.avunel/` |
+| Windows | `%LOCALAPPDATA%\avunel\` |
+
+Resolution order (highest first):
+
+1. `AVUNEL_HOME` — canonical override.
+2. `HERMES_HOME` — legacy override, still honored.
+3. An existing `~/.hermes/` on a machine with no `~/.avunel/` — reused so old data is not orphaned.
+4. The platform default above — a brand-new install.
+
+Existing data is **never** moved, overwritten, or deleted automatically. To adopt the new home deliberately, set `AVUNEL_HOME` or move the directory yourself.
 
 ## Running it
 

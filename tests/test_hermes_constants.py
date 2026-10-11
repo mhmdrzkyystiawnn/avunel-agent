@@ -29,11 +29,31 @@ class TestGetDefaultHermesRoot:
 
     @pytest.mark.platforms("linux")
     def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.hermes."""
+        """When no home env is set, a fresh machine returns ~/.avunel."""
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("AVUNEL_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
+        assert get_default_hermes_root() == tmp_path / ".avunel"
+
+    @pytest.mark.platforms("linux")
+    def test_lone_legacy_hermes_home_is_reused(self, tmp_path, monkeypatch):
+        """A machine that already has only ~/.hermes keeps using it (no data move)."""
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("AVUNEL_HOME", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".hermes").mkdir()
+
         assert get_default_hermes_root() == tmp_path / ".hermes"
+
+    @pytest.mark.platforms("linux")
+    def test_avunel_home_env_wins_over_legacy(self, tmp_path, monkeypatch):
+        """AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setenv("AVUNEL_HOME", str(tmp_path / "canonical"))
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "legacy"))
+
+        assert get_process_hermes_home() == tmp_path / "canonical"
 
 
 
@@ -62,13 +82,14 @@ class TestGetDefaultHermesRoot:
 
     @pytest.mark.platforms("windows")
     def test_no_hermes_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
-        """Native Windows falls back to %LOCALAPPDATA%\\hermes, not ~/.hermes."""
+        """Native Windows falls back to %LOCALAPPDATA%\\avunel, not ~/.hermes."""
         local_appdata = tmp_path / "LocalAppData"
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("AVUNEL_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
 
-        assert get_default_hermes_root() == local_appdata / "hermes"
+        assert get_default_hermes_root() == local_appdata / "avunel"
 
 
 
@@ -90,14 +111,15 @@ class TestGetHermesHome:
 
     @pytest.mark.platforms("windows")
     def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is unset on Windows, use %LOCALAPPDATA%\\hermes."""
+        """When no home env is set on Windows, use %LOCALAPPDATA%\\avunel."""
         local_appdata = tmp_path / "LocalAppData"
         monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("AVUNEL_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
         monkeypatch.setattr(hermes_constants, "_profile_fallback_warned", False)
 
-        assert get_hermes_home() == local_appdata / "hermes"
+        assert get_hermes_home() == local_appdata / "avunel"
 
 
 class TestGetProcessHermesHome:

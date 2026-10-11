@@ -125,7 +125,13 @@ def systemd_unit_hermes_home(scope_cmd: list, svc_name: str) -> str | None:
         if sep and key == "HERMES_HOME" and value.strip():
             return value.strip()
     if "--user" in scope_cmd:
-        return str(Path.home() / ".hermes")
+        # AVUNEL_HOME is canonical; the legacy default is reused when it is the
+        # only home on the machine (mirrors hermes_constants resolution).
+        avunel = Path.home() / ".avunel"
+        legacy = Path.home() / ".hermes"
+        if avunel.exists() or not legacy.exists():
+            return str(avunel)
+        return str(legacy)
     return None
 
 
