@@ -1590,7 +1590,9 @@ class TestHermesHomeForTargetUser:
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
         result = gateway_cli._hermes_home_for_target_user("/home/alice")
-        assert result == "/home/alice/.hermes"
+        # The default data home is Avunel's own directory now; the remap
+        # preserves the relative structure under the target user's home.
+        assert result == "/home/alice/.avunel"
 
 
 class TestGeneratedUnitIncludesLocalBin:

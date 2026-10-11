@@ -821,4 +821,6 @@ def _process_hermes_home() -> Path:
 
         return get_routing_process_hermes_home()
     except Exception:
-        return Path.home() / ".hermes"
+        # AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+        override = os.environ.get("AVUNEL_HOME", "").strip() or os.environ.get("HERMES_HOME", "").strip()
+        return Path(override) if override else Path.home() / ".avunel"

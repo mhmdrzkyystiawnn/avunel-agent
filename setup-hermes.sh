@@ -19,10 +19,15 @@ set -e
 # pm.cli directly and never select it.
 runtime_only=false
 test_environment="--test-environment"
+print_resolved_home=false
 for option in "$@"; do
     case "$option" in
         --runtime-only) runtime_only=true ;;
         --test-environment|--test-environment=*) test_environment="$option" ;;
+        # Side-effect-free contract: print the resolved data home as JSON and
+        # exit, so the AVUNEL_HOME/HERMES_HOME precedence is testable without
+        # downloading a toolchain (mirrors install.sh --show-resolved-paths).
+        --print-resolved-home) print_resolved_home=true ;;
         *) printf 'Unknown setup option: %s\n' "$option" >&2; exit 2 ;;
     esac
 done
@@ -35,6 +40,27 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override. The native
+# default is ~/.avunel, except on a machine that already has only ~/.hermes —
+# that legacy home is reused so existing data is never orphaned or moved.
+# AVUNEL_HOME wins over HERMES_HOME when both are set; the resolved value is
+# exported as HERMES_HOME because every downstream reader still reads that name.
+if [ -n "${AVUNEL_HOME:-}" ]; then
+    AVUNEL_RESOLVED_HOME="$AVUNEL_HOME"
+elif [ -n "${HERMES_HOME:-}" ]; then
+    AVUNEL_RESOLVED_HOME="$HERMES_HOME"
+elif [ ! -e "$HOME/.avunel" ] && [ -e "$HOME/.hermes" ]; then
+    AVUNEL_RESOLVED_HOME="$HOME/.hermes"
+else
+    AVUNEL_RESOLVED_HOME="$HOME/.avunel"
+fi
+export HERMES_HOME="$AVUNEL_RESOLVED_HOME"
+
+if [ "$print_resolved_home" = true ]; then
+    printf '{"hermes_home":"%s"}\n' "$HERMES_HOME"
+    exit 0
+fi
 
 # Prevent uv from discovering config files (uv.toml, pyproject.toml) from the
 # wrong user's home directory when running under sudo -u <user>.  See #21269.
@@ -106,7 +132,7 @@ uv_version="$(pin version)"
 py_version="$(pin version python | cut -d+ -f1 | cut -d. -f1,2)"
 [ -n "$uv_version" ] || { echo -e "${RED}✗${NC} no uv pin in pm/lock.json" >&2; exit 1; }
 
-store="${HERMES_RUNTIME_DIR:-$HOME/.hermes/tools}"
+store="${HERMES_RUNTIME_DIR:-$HERMES_HOME/tools}"
 entry="$store/uv-$uv_version-$target"
 uv="$entry/uv"; [ "$os" = win32 ] && uv="$entry/uv.exe"
 
@@ -215,7 +241,7 @@ echo -e "${CYAN}→${NC} Setting up hermes command..."
 # Reuse the bootstrap interpreter only to run the shared launcher writer.
 bin_dir="$HOME/.local/bin"
 if [ "$os" = win32 ]; then
-    bin_dir="$(cygpath -am "${HERMES_HOME:-${LOCALAPPDATA:-$HOME/AppData/Local}/hermes}/bin")"
+    bin_dir="$(cygpath -am "$HERMES_HOME/bin")"
 fi
 if ! "$boot_py" -I -X utf8 hermes_cli/_launchers.py "$bin_dir"; then
     echo -e "${RED}✗${NC} launcher publication failed" >&2
@@ -262,14 +288,14 @@ if [ "$os" != win32 ]; then
 fi
 
 # ============================================================================
-# Seed bundled skills into ~/.hermes/skills/
+# Seed bundled skills into the resolved data home's skills/ directory.
 # ============================================================================
 
-HERMES_SKILLS_DIR="${HERMES_HOME:-$HOME/.hermes}/skills"
+HERMES_SKILLS_DIR="$HERMES_HOME/skills"
 mkdir -p "$HERMES_SKILLS_DIR"
 
 echo ""
-echo "Syncing bundled skills to ~/.hermes/skills/ ..."
+echo "Syncing bundled skills to $HERMES_SKILLS_DIR ..."
 if "$boot_py" -m tools.skills_sync 2>/dev/null; then
     echo -e "${GREEN}✓${NC} Skills synced"
 else

@@ -3091,13 +3091,15 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
     current_hermes_raw = os.environ.get("HERMES_HOME", "").strip()
     current_hermes = Path(current_hermes_raw).expanduser() if current_hermes_raw else get_hermes_home()
     # Keep paths lexical: resolving a non-existent path can bake a different HERMES_HOME into the unit.
-    current_default = Path.home() / ".hermes"
-    target_default = Path(target_home_dir) / ".hermes"
-    try:
-        # Default ~/.hermes or a profile/subdir of it → preserve the relative structure under the target.
-        return str(target_default / current_hermes.relative_to(current_default))
-    except ValueError:
-        return str(current_hermes)  # Completely custom path (not under ~/.hermes) — keep as-is
+    # Avunel's own directory is the primary default; the legacy one stays recognized.
+    for dirname in (".avunel", ".hermes"):
+        current_default = Path.home() / dirname
+        target_default = Path(target_home_dir) / dirname
+        try:
+            return str(target_default / current_hermes.relative_to(current_default))
+        except ValueError:
+            continue
+    return str(current_hermes)  # Completely custom path — keep as-is
 
 
 def _build_service_path_dirs(project_root: Path | None = None) -> list[str]:

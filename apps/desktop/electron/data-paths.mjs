@@ -23,6 +23,14 @@ function normalizeHermesHomeRoot(hermesHome, pathModule) {
   return resolved
 }
 
+/**
+ * The LEGACY Hermes default home. This name is deliberately NOT Avunel's
+ * default: `controlSocketPath` (ssh-connection.ts) derives the SSH
+ * `desktop-ssh` directory from it, and that directory is a cross-process
+ * contract pinned to `~/.hermes/desktop-ssh` (hermes_cli/main_dashboard.py,
+ * remote-lifecycle.ts). Moving it would break desktop SSH. It stays put; the
+ * Avunel default lives in `avunelPlatformDefaultHome` below.
+ */
 export function platformDefaultHermesHome(home, env = process.env, platform = process.platform) {
   const suffix = env.HERMES_DATA_DIR_SUFFIX || ''
   if (platform === 'win32') {
@@ -30,6 +38,16 @@ export function platformDefaultHermesHome(home, env = process.env, platform = pr
     return path.win32.join(base, 'hermes') + suffix
   }
   return path.posix.join(home, '.hermes') + suffix
+}
+
+/** Avunel's own native default home (the data-home default for new installs). */
+function avunelPlatformDefaultHome(home, env = process.env, platform = process.platform) {
+  const suffix = env.HERMES_DATA_DIR_SUFFIX || ''
+  if (platform === 'win32') {
+    const base = (env.LOCALAPPDATA || '').trim() || path.win32.join(home, 'AppData', 'Local')
+    return path.win32.join(base, 'avunel') + suffix
+  }
+  return path.posix.join(home, '.avunel') + suffix
 }
 
 export function resolveDesktopUserData(defaultPath, env = process.env) {
@@ -40,6 +58,10 @@ export function resolveDesktopUserData(defaultPath, env = process.env) {
 
 export function resolveDesktopHermesHome({ home, env = process.env, platform = process.platform, directoryExists = () => false, readWindowsHome = () => null }) {
   const paths = platform === 'win32' ? path.win32 : path.posix
+  // AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+  if (env.AVUNEL_HOME) {
+    return normalizeHermesHomeRoot(env.AVUNEL_HOME, paths)
+  }
   if (env.HERMES_HOME) {
     return normalizeHermesHomeRoot(env.HERMES_HOME, paths)
   }
@@ -54,13 +76,12 @@ export function resolveDesktopHermesHome({ home, env = process.env, platform = p
       return normalizeHermesHomeRoot(registryHome, paths)
     }
   }
-  const defaultHome = platformDefaultHermesHome(home, env, platform)
-  // Keep the legacy migration for ordinary installs, not isolated suffix runs.
-  if (platform === 'win32' && !env.HERMES_DATA_DIR_SUFFIX) {
-    const legacy = paths.join(home, '.hermes')
-    if (!directoryExists(defaultHome) && directoryExists(legacy)) {
-      return legacy
-    }
+  const avunelHome = avunelPlatformDefaultHome(home, env, platform)
+  const legacyHome = platformDefaultHermesHome(home, env, platform)
+  // Reuse an existing legacy ~/.hermes install so its data is never orphaned
+  // or moved without an explicit override. Skipped for isolated suffix runs.
+  if (!env.HERMES_DATA_DIR_SUFFIX && !directoryExists(avunelHome) && directoryExists(legacyHome)) {
+    return legacyHome
   }
-  return defaultHome
+  return avunelHome
 }

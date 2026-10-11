@@ -58,7 +58,9 @@ export const widgetSdk = {
 
 export type WidgetSdk = typeof widgetSdk
 
-const widgetsDir = () => join(process.env.HERMES_HOME?.trim() || join(homedir(), '.hermes'), 'tui-widgets')
+// AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+const widgetsDir = () =>
+  join(process.env.AVUNEL_HOME?.trim() || process.env.HERMES_HOME?.trim() || join(homedir(), '.avunel'), 'tui-widgets')
 
 export interface UserWidgetLoadResult {
   /** App ids newly registered by this scan. */

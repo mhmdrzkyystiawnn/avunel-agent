@@ -22,6 +22,38 @@ _HERMES_HOME_OVERRIDE: ContextVar[str | object] = ContextVar("_HERMES_HOME_OVERR
 # upstream credit stay as-is — only user-visible text reads this constant.
 PRODUCT_NAME: str = "Avunel"
 
+# AVUNEL_HOME is the canonical Avunel data-home override. HERMES_HOME remains
+# a supported legacy override so existing Hermes installations and explicit
+# development launchers keep working without migration or data movement.
+AVUNEL_HOME_ENV: str = "AVUNEL_HOME"
+LEGACY_HOME_ENV: str = "HERMES_HOME"
+AVUNEL_DEFAULT_DIRNAME: str = ".avunel"
+LEGACY_DEFAULT_DIRNAME: str = ".hermes"
+
+
+def _configured_home_value() -> str:
+    """Return Avunel's canonical home override, then the legacy Hermes one."""
+    return os.environ.get(AVUNEL_HOME_ENV, "").strip() or os.environ.get(LEGACY_HOME_ENV, "").strip()
+
+
+def _default_home_dirname() -> str:
+    """Return the native default directory name for this product."""
+    return "avunel" if sys.platform == "win32" else AVUNEL_DEFAULT_DIRNAME
+
+
+def _native_home_candidates() -> tuple[Path, Path]:
+    """Return ``(Avunel default, legacy Hermes default)`` for this platform.
+
+    Both carry the literal ``HERMES_DATA_DIR_SUFFIX`` (kept for compatibility
+    with existing deployments and test fixtures).
+    """
+    suffix = os.environ.get("HERMES_DATA_DIR_SUFFIX", "")
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+        base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
+        return base / ("avunel" + suffix), base / ("hermes" + suffix)
+    return Path.home() / (AVUNEL_DEFAULT_DIRNAME + suffix), Path.home() / (LEGACY_DEFAULT_DIRNAME + suffix)
+
 # Avunel's OWN version, versioned independently of Hermes. Never derive this
 # from (or bump it with) the upstream Hermes version — the two identities are
 # separate on purpose: Avunel is the product, Hermes is the upstream it builds on.
@@ -59,17 +91,23 @@ def _expand_hermes_home(path: str) -> Path:
 
 
 def _get_platform_default_hermes_home() -> Path:
-    """Return the platform default with the literal data-directory suffix."""
-    suffix = os.environ.get("HERMES_DATA_DIR_SUFFIX", "")
-    if sys.platform == "win32":
-        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-        base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
-        return base / ("hermes" + suffix)
-    return Path.home() / (".hermes" + suffix)
+    """Return the native default data home, preferring Avunel's own directory.
+
+    Avunel's default is ``~/.avunel`` (``%LOCALAPPDATA%\\avunel`` on Windows).
+    A machine that already has only the legacy ``~/.hermes`` directory keeps
+    using it: the legacy path is selected when Avunel's directory is absent and
+    the legacy one exists, so existing data is never orphaned or moved without
+    an explicit ``AVUNEL_HOME``/``HERMES_HOME`` override. A brand-new install
+    gets ``~/.avunel``.
+    """
+    avunel_home, legacy_home = _native_home_candidates()
+    if not avunel_home.exists() and legacy_home.exists():
+        return legacy_home
+    return avunel_home
 
 
 def sudo_invoker_default_home() -> Path | None:
-    """The invoking user's native ``~/.hermes`` when this process is root under ``sudo``, else None.
+    """The invoking user's native default home when this process is root under ``sudo``, else None.
 
     sudo strips HERMES_HOME and sets HOME=/root, so the process's own default is root's; the profile
     store and the system service being operated on belong to SUDO_USER.
@@ -82,9 +120,16 @@ def sudo_invoker_default_home() -> Path | None:
     import pwd
 
     try:
-        return Path(pwd.getpwnam(sudo_user).pw_dir) / ".hermes"
+        invoker_home = Path(pwd.getpwnam(sudo_user).pw_dir)
     except KeyError:  # SUDO_USER not in passwd (chroot/container)
         return None
+    # Mirror the process-home resolution for the invoking user: Avunel's own
+    # directory, or the legacy one when it is the only home present.
+    avunel_home = invoker_home / _default_home_dirname()
+    legacy_home = invoker_home / ("hermes" if sys.platform == "win32" else LEGACY_DEFAULT_DIRNAME)
+    if not avunel_home.exists() and legacy_home.exists():
+        return legacy_home
+    return avunel_home
 
 
 def _warn_profile_fallback_once() -> None:
@@ -119,11 +164,11 @@ def _warn_profile_fallback_once() -> None:
 
 
 def get_hermes_home() -> Path:
-    """Hermes home: context-local override → ``HERMES_HOME`` env var → platform default."""
+    """Hermes home: context-local override → ``AVUNEL_HOME``/``HERMES_HOME`` env → platform default."""
     override = get_hermes_home_override()
     if override:
         return _expand_hermes_home(override)
-    if not os.environ.get("HERMES_HOME", "").strip():
+    if not _configured_home_value():
         _warn_profile_fallback_once()
     return get_process_hermes_home()
 
@@ -175,7 +220,7 @@ def get_process_hermes_home() -> Path:
     ``HERMES_HOME`` live on purpose: routed-profile DECISIONS compare against
     :func:`get_routing_process_hermes_home` instead (#119242).
     """
-    val = os.environ.get("HERMES_HOME", "").strip()
+    val = _configured_home_value()
     return _expand_hermes_home(val) if val else _get_platform_default_hermes_home()
 
 
@@ -227,7 +272,7 @@ def get_default_hermes_root(*, home: str | Path | None = None) -> Path:
     """Root of an explicit home, or the process home when none is supplied."""
     global _default_hermes_root_memo
     native_home = _get_platform_default_hermes_home()
-    env_home = str(home).strip() if home is not None else os.environ.get("HERMES_HOME", "").strip()
+    env_home = str(home).strip() if home is not None else _configured_home_value()
     env_path = _expand_hermes_home(env_home) if env_home else None
     memo_key = (str(native_home), str(env_path) if env_path is not None else "")
     memo = _default_hermes_root_memo
@@ -256,7 +301,7 @@ def _is_hermes_profiles_root(profiles_dir: Path) -> bool:
     ``profiles/.deleted`` tombstone dir (only ``profile delete`` creates it), or the default root.
     """
     root = profiles_dir.parent
-    if root.name == ".hermes":
+    if root.name in (AVUNEL_DEFAULT_DIRNAME, LEGACY_DEFAULT_DIRNAME):
         return True
     try:
         if (profiles_dir / _DELETED_PROFILES_DIR).is_dir() or any(
@@ -282,7 +327,8 @@ def named_profile_home(path: str | Path) -> Path | None:
         if (candidate.parent.name == "profiles" and not candidate.name.startswith(".")
                 and _is_hermes_profiles_root(candidate.parent)):
             return candidate
-        if candidate.name == ".hermes":  # default home: a coincidental profiles/ ancestor is not a root
+        if candidate.name in (AVUNEL_DEFAULT_DIRNAME, LEGACY_DEFAULT_DIRNAME):
+            # default home: a coincidental profiles/ ancestor is not a root
             return None
     return None
 
