@@ -27,6 +27,16 @@ export function platformDefaultHermesHome(home, env = process.env, platform = pr
   const suffix = env.HERMES_DATA_DIR_SUFFIX || ''
   if (platform === 'win32') {
     const base = (env.LOCALAPPDATA || '').trim() || path.win32.join(home, 'AppData', 'Local')
+    return path.win32.join(base, 'avunel') + suffix
+  }
+  return path.posix.join(home, '.avunel') + suffix
+}
+
+/** Legacy Hermes default root, used only to reuse an existing install. */
+function legacyPlatformDefaultHermesHome(home, env = process.env, platform = process.platform) {
+  const suffix = env.HERMES_DATA_DIR_SUFFIX || ''
+  if (platform === 'win32') {
+    const base = (env.LOCALAPPDATA || '').trim() || path.win32.join(home, 'AppData', 'Local')
     return path.win32.join(base, 'hermes') + suffix
   }
   return path.posix.join(home, '.hermes') + suffix
@@ -40,6 +50,10 @@ export function resolveDesktopUserData(defaultPath, env = process.env) {
 
 export function resolveDesktopHermesHome({ home, env = process.env, platform = process.platform, directoryExists = () => false, readWindowsHome = () => null }) {
   const paths = platform === 'win32' ? path.win32 : path.posix
+  // AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+  if (env.AVUNEL_HOME) {
+    return normalizeHermesHomeRoot(env.AVUNEL_HOME, paths)
+  }
   if (env.HERMES_HOME) {
     return normalizeHermesHomeRoot(env.HERMES_HOME, paths)
   }
@@ -55,9 +69,10 @@ export function resolveDesktopHermesHome({ home, env = process.env, platform = p
     }
   }
   const defaultHome = platformDefaultHermesHome(home, env, platform)
-  // Keep the legacy migration for ordinary installs, not isolated suffix runs.
-  if (platform === 'win32' && !env.HERMES_DATA_DIR_SUFFIX) {
-    const legacy = paths.join(home, '.hermes')
+  // Reuse an existing legacy ~/.hermes install so its data is never orphaned
+  // or moved without an explicit override. Skipped for isolated suffix runs.
+  if (!env.HERMES_DATA_DIR_SUFFIX) {
+    const legacy = legacyPlatformDefaultHermesHome(home, env, platform)
     if (!directoryExists(defaultHome) && directoryExists(legacy)) {
       return legacy
     }

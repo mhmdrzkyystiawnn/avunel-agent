@@ -91,6 +91,7 @@ function normalizeHermesHomeRoot(
 // OS/interpreter names a dotenv may redeclare that no child can run without.
 const PROCESS_ENV_NAMES = new Set([
   'APPDATA',
+  'AVUNEL_HOME',
   'COMSPEC',
   'HERMES_HOME',
   'HOME',
@@ -158,7 +159,8 @@ function profileBackendParentEnv({
   }
 
   const fold = platform === 'win32' ? (value: string) => value.toUpperCase() : (value: string) => value
-  const inheritedHome = currentEnv?.HERMES_HOME ? resolveHermesHomePath(currentEnv.HERMES_HOME, { pathModule }) : null
+  const configuredHome = currentEnv?.AVUNEL_HOME || currentEnv?.HERMES_HOME
+  const inheritedHome = configuredHome ? resolveHermesHomePath(configuredHome, { pathModule }) : null
   const launchHome = inheritedHome && isProfileHome(inheritedHome, pathModule) ? inheritedHome : hermesHome
   const name = profile || readTextOrEmpty(fsModule, pathModule.join(hermesHome, 'active_profile')).trim()
   const targetHome = !name || name === 'default' ? hermesHome : pathModule.join(hermesHome, 'profiles', name)

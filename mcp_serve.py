@@ -42,7 +42,9 @@ def _hermes_home() -> Path:
         from hermes_constants import get_hermes_home
         return get_hermes_home()
     except ImportError:
-        return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+        # AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+        override = os.environ.get("AVUNEL_HOME", "").strip() or os.environ.get("HERMES_HOME", "").strip()
+        return Path(override) if override else Path.home() / ".avunel"
 
 
 def _get_sessions_dir() -> Path:

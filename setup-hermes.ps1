@@ -24,6 +24,20 @@ $lockPath = Join-Path $repo 'pm/lock.json'
 if (-not (Test-Path $lockPath)) { throw 'pm/lock.json not found' }
 $lock = Get-Content -Raw $lockPath | ConvertFrom-Json
 
+# AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override. The native
+# default is ~/.avunel, except on a machine that already has only ~/.hermes —
+# that legacy home is reused so existing data is never orphaned or moved.
+if ($env:AVUNEL_HOME) {
+    $resolvedHome = $env:AVUNEL_HOME
+} elseif ($env:HERMES_HOME) {
+    $resolvedHome = $env:HERMES_HOME
+} elseif (-not (Test-Path (Join-Path $HOME '.avunel')) -and (Test-Path (Join-Path $HOME '.hermes'))) {
+    $resolvedHome = Join-Path $HOME '.hermes'
+} else {
+    $resolvedHome = Join-Path $HOME '.avunel'
+}
+if (-not $env:HERMES_HOME) { $env:HERMES_HOME = $resolvedHome }
+
 $machineArch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
 $arch = if ($machineArch -eq 'ARM64') { 'arm64' } else { 'x64' }
 $target = "win32-$arch"
@@ -40,7 +54,7 @@ if (-not $artifact) { throw "no uv artifact for $target" }
 $pyPin = $lock.packages.python
 $pyVersion = if ($pyPin) { ($pyPin.version -split '\+')[0] -replace '^(\d+\.\d+).*', '$1' } else { '3.11' }
 
-$store = if ($env:HERMES_RUNTIME_DIR) { $env:HERMES_RUNTIME_DIR } else { Join-Path $HOME '.hermes/tools' }
+$store = if ($env:HERMES_RUNTIME_DIR) { $env:HERMES_RUNTIME_DIR } else { Join-Path $resolvedHome 'tools' }
 $entry = Join-Path $store "uv-$($uvPin.version)-$target"
 $uv = Join-Path $entry 'uv.exe'
 
@@ -120,9 +134,9 @@ if (-not (Test-Path $envFile)) {
 }
 
 # ---------------------------------------------------------------------------
-# Seed bundled skills into ~/.hermes/skills/
+# Seed bundled skills into the resolved data home's skills/ directory.
 # ---------------------------------------------------------------------------
-$skillsDir = if ($env:HERMES_HOME) { Join-Path $env:HERMES_HOME 'skills' } else { Join-Path $HOME '.hermes/skills' }
+$skillsDir = Join-Path $env:HERMES_HOME 'skills'
 New-Item -ItemType Directory -Force -Path $skillsDir | Out-Null
 $sync = Join-Path $repo 'tools/skills_sync.py'
 $venvPy = Join-Path $repo 'venv/Scripts/python.exe'
