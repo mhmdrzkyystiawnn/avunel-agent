@@ -51,7 +51,8 @@ def runtime_command(repo_root: Path, args=(), *, module: str = "hermes_cli.main"
         "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
         "os.environ.pop('VIRTUAL_ENV', None); "
         f"sys.path.insert(0, {_inline_string_literal(str(root))}); "
-        f"os.environ['HERMES_HOME'] = os.environ.get('HERMES_HOME') or {default_home}; "
+        # AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override.
+        f"os.environ['HERMES_HOME'] = os.environ.get('AVUNEL_HOME') or os.environ.get('HERMES_HOME') or {default_home}; "
         "import hermes_bootstrap; "
         + entry
     )
@@ -303,7 +304,7 @@ def _launcher_script(name: str, repo_root: Path, dependencies: Path | None) -> s
         f"sys.path.insert(0, {str(repo_root.resolve())!r})\n"
         "if sys.argv[1:2] == ['--print-runtime-command']: sys.dont_write_bytecode = True\n"
         "from hermes_constants import get_default_hermes_root\n"
-        "os.environ['HERMES_HOME'] = os.environ.get('HERMES_HOME') or str(get_default_hermes_root())\n"
+        "os.environ['HERMES_HOME'] = os.environ.get('AVUNEL_HOME') or os.environ.get('HERMES_HOME') or str(get_default_hermes_root())\n"
         "if sys.argv[1:2] == ['--print-runtime-command']:\n"
         "    from pathlib import Path\n"
         "    from hermes_cli._launchers import print_runtime_command\n"

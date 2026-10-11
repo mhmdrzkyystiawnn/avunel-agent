@@ -20,8 +20,18 @@
 param(
     [string]$Branch = "main",
     [string]$Commit = "",
-    [string]$HermesHome = $(if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }),
-    [string]$InstallDir = $(if ($env:HERMES_HOME) { "$env:HERMES_HOME\hermes-agent" } else { "$env:LOCALAPPDATA\hermes\hermes-agent" }),
+    # AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override. When both
+    # are set AVUNEL_HOME wins. The native default is %LOCALAPPDATA%\avunel,
+    # except on a machine that already has only %LOCALAPPDATA%\hermes — that
+    # legacy home is reused so existing data is never orphaned or moved.
+    [string]$HermesHome = $(if ($env:AVUNEL_HOME) { $env:AVUNEL_HOME }
+        elseif ($env:HERMES_HOME) { $env:HERMES_HOME }
+        elseif (-not (Test-Path "$env:LOCALAPPDATA\avunel") -and (Test-Path "$env:LOCALAPPDATA\hermes")) { "$env:LOCALAPPDATA\hermes" }
+        else { "$env:LOCALAPPDATA\avunel" }),
+    [string]$InstallDir = $(if ($env:AVUNEL_HOME) { "$env:AVUNEL_HOME\hermes-agent" }
+        elseif ($env:HERMES_HOME) { "$env:HERMES_HOME\hermes-agent" }
+        elseif (-not (Test-Path "$env:LOCALAPPDATA\avunel") -and (Test-Path "$env:LOCALAPPDATA\hermes")) { "$env:LOCALAPPDATA\hermes\hermes-agent" }
+        else { "$env:LOCALAPPDATA\avunel\hermes-agent" }),
     [switch]$Manifest,
     [string]$Stage,
     [switch]$ProtocolVersion,
@@ -322,7 +332,10 @@ function Initialize-ResolvedPaths {
         ConvertTo-LongPath $HermesHome
     } else {
         ConvertTo-LongPath $(
-            if ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\hermes" }
+            if ($env:AVUNEL_HOME) { $env:AVUNEL_HOME }
+            elseif ($env:HERMES_HOME) { $env:HERMES_HOME }
+            elseif (-not (Test-Path "$env:LOCALAPPDATA\avunel") -and (Test-Path "$env:LOCALAPPDATA\hermes")) { "$env:LOCALAPPDATA\hermes" }
+            else { "$env:LOCALAPPDATA\avunel" }
         )
     }
     $resolvedDir = if ($script:BoundParams.ContainsKey('InstallDir')) {

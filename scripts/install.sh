@@ -24,7 +24,18 @@ REPO_URL="${HERMES_REPO_URL:-https://github.com/NousResearch/hermes-agent.git}"
 BRANCH="main"
 INSTALL_COMMIT=""
 INSTALL_DIR="${HERMES_INSTALL_DIR:-}"
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+# AVUNEL_HOME is canonical; HERMES_HOME stays a legacy override. The native
+# default is ~/.avunel, except on a machine that already has only ~/.hermes —
+# that legacy home is reused so existing data is never orphaned or moved.
+if [ -n "${AVUNEL_HOME:-}" ]; then
+    HERMES_HOME="$AVUNEL_HOME"
+elif [ -n "${HERMES_HOME:-}" ]; then
+    : # explicit legacy override wins over the default
+elif [ ! -e "$HOME/.avunel" ] && [ -e "$HOME/.hermes" ]; then
+    HERMES_HOME="$HOME/.hermes"
+else
+    HERMES_HOME="$HOME/.avunel"
+fi
 STAGE=""
 WANT_MANIFEST=false
 JSON=false
@@ -36,7 +47,7 @@ SKIP_COMPUTER_USE=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --branch|-Branch|--commit|-Commit|--dir|--hermes-home|-HermesHome|--stage|-Stage)
+        --branch|-Branch|--commit|-Commit|--dir|--hermes-home|-HermesHome|--avunel-home|--AvunelHome|--stage|-Stage)
             option="$1"
             if [ $# -lt 2 ] || [ -z "$2" ] || [[ "$2" == -* ]]; then
                 printf '%s needs a value\n' "$option" >&2
@@ -46,7 +57,7 @@ while [ $# -gt 0 ]; do
                 --branch|-Branch) BRANCH="$2" ;;
                 --commit|-Commit) INSTALL_COMMIT="$2" ;;
                 --dir) INSTALL_DIR="$2" ;;
-                --hermes-home|-HermesHome) HERMES_HOME="$2" ;;
+                --hermes-home|-HermesHome|--avunel-home|--AvunelHome) HERMES_HOME="$2" ;;
                 --stage|-Stage) STAGE="$2" ;;
             esac
             shift 2 ;;
@@ -60,7 +71,7 @@ while [ $# -gt 0 ]; do
         --verbose|-Verbose) VERBOSE=true; shift ;;
         -h|--help)
             echo "Usage: install.sh [--branch NAME] [--commit SHA] [--dir PATH]"
-            echo "                  [--hermes-home PATH]"
+            echo "                  [--avunel-home PATH]  (alias: --hermes-home)"
             echo "                  [--manifest] [--stage NAME] [--json]"
             echo "                  [--non-interactive] [--include-desktop] [--verbose]"
             echo "                  [--skip-browser] [--skip-computer-use]"
