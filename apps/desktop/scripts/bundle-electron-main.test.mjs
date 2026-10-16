@@ -108,9 +108,11 @@ test('the bundled entry lets desktop.electron_flags choose the ozone platform', 
 // data-dir suffix channel installs rely on, and multiplexed profiles/ homes.
 test('the bundled entry reads desktop.electron_flags through a suffixed home', () => {
   const config = 'desktop:\n  electron_flags:\n    - --ozone-platform=x11\n'
+  // Avunel's data-dir suffix lives under the Avunel home root (data-paths.mjs:
+  // avunelPlatformDefaultHome). Legacy `~/.hermes-...` is no longer the default.
   const home = mkdtempSync(join(root, 'suffixed-home-'))
-  mkdirSync(join(home, '.hermes-canary'), { recursive: true })
-  writeFileSync(join(home, '.hermes-canary', 'config.yaml'), config)
+  mkdirSync(join(home, '.avunel-canary'), { recursive: true })
+  writeFileSync(join(home, '.avunel-canary', 'config.yaml'), config)
 
   expect(
     launch({ XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' }, undefined, {

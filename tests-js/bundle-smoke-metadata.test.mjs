@@ -45,6 +45,9 @@ test('identity uses the production bundled variant and exact input tokens, not i
   expect(JSON.parse(execFileSync(process.execPath, [cli, 'identity', '--commit', commit], { env: hostileEnvironment, encoding: 'utf8' }))).toEqual(tagless)
 })
 
+// Spawns the bundle-smoke CLI multiple times (per platform × per stamp). Vitest's
+// default 5s timeout is too tight; the work is real subprocess I/O, not a hang.
+// Bound it explicitly per-test rather than widening the project-wide limit.
 test('channel smoke binds the complete admitted request, not a commit-build identity or display version', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'channel-smoke-'))
   const token = randomBytes(8).toString('hex'), sequence = 65537
@@ -132,7 +135,7 @@ test('workspace admission rejects reuse and symlink escapes before creating anyt
     fs.symlinkSync(temp, alias, process.platform === 'win32' ? 'junction' : 'dir')
     expect(run(path.join(alias, 'fresh'), out).status).toBe(0)
   } finally { fs.rmSync(temp, { recursive: true, force: true }) }
-})
+}, 30_000)
 
 test.runIf(process.platform === 'win32')('PowerShell admits only the pinned package and native slice', () => {
   const script = path.resolve(import.meta.dirname, '../tests/install/e2e-assets/windows-bundle-metadata.test.ps1')

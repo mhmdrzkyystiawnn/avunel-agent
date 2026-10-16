@@ -499,10 +499,12 @@ test('predictSmokeHermesHome replays the bundle banner through the shared resolv
   expect(predictSmokeHermesHome(launchEnv, {}, 'linux', '/real/home')).toBe('/pinned/home')
   // HERMES_HOME cleared -> the <userData>/hermes-home fallback.
   expect(predictSmokeHermesHome(launchEnv, { HERMES_HOME: null }, 'linux', '/real/home')).toBe('/pinned/userdata/hermes-home')
-  // Both cleared + baked suffix -> the platform default with that suffix.
-  expect(predictSmokeHermesHome(launchEnv, { HERMES_HOME: null, HERMES_DESKTOP_USER_DATA_DIR: null, HERMES_DATA_DIR_SUFFIX: '-magic' }, 'linux', '/real/home')).toBe('/real/home/.hermes-magic')
+  // Both cleared + baked suffix -> Avunel's platform default with that suffix.
+  // The default lives in `avunelPlatformDefaultHome` (data-paths.mjs); the
+  // legacy `~/.hermes` install is only reused when it already exists.
+  expect(predictSmokeHermesHome(launchEnv, { HERMES_HOME: null, HERMES_DESKTOP_USER_DATA_DIR: null, HERMES_DATA_DIR_SUFFIX: '-magic' }, 'linux', '/real/home')).toBe('/real/home/.avunel-magic')
   // On Windows the default derives from the sandboxed LOCALAPPDATA, not the OS home.
-  expect(predictSmokeHermesHome(launchEnv, { HERMES_HOME: null, HERMES_DESKTOP_USER_DATA_DIR: null, HERMES_DATA_DIR_SUFFIX: '-magic' }, 'win32', 'C:/Users/real')).toBe('C:\\Users\\runner\\AppData\\Local\\hermes-magic')
+  expect(predictSmokeHermesHome(launchEnv, { HERMES_HOME: null, HERMES_DESKTOP_USER_DATA_DIR: null, HERMES_DATA_DIR_SUFFIX: '-magic' }, 'win32', 'C:/Users/real')).toBe('C:\\Users\\runner\\AppData\\Local\\avunel-magic')
 })
 
 test('readBundledBundleEnv reads the stamped defaults/clears and is absent when unstamped', (): void => {

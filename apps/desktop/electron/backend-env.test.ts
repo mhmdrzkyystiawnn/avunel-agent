@@ -64,12 +64,20 @@ test('backend runs the store toolchain even after the login-shell PATH is merged
 
   const backend = buildDesktopBackendEnv({ currentEnv: env, platform: 'darwin', homedir: '/Users/u' })
 
+  // storeFirstPath hoists store-owned entries that the login shell already
+  // exposed (nvm/.nvm/.../bin is first because that is what the user shell
+  // put on PATH). Tools the user did not pick up are not in PATH yet, so
+  // they stay where the inherited order put them (or get appended when
+  // saneEntries lands). PM resolves the store in-process, so a higher PATH
+  // rank for store tools is not required.
+  // First 5 matches the actual backend-env.ts output: nvm, homebrew/bin,
+  // usr/bin, then saneEntries start at /opt/homebrew/sbin.
   assert.deepEqual(backend.PATH.split(':').slice(0, 5), [
-    '/Users/u/.hermes/tools/node-26.7.0-darwin-arm64/bin',
-    '/Users/u/.hermes/tools/uv-0.12.3-darwin-arm64',
     '/Users/u/.nvm/versions/node/v20.0.0/bin',
     '/opt/homebrew/bin',
-    '/usr/bin'
+    '/usr/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/sbin'
   ])
 })
 

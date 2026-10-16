@@ -24,8 +24,28 @@ concurrency:
 jobs:
   test:
     name: Run tests
+    # ubuntu-latest is the only larger-runner label that has ever resolved to a
+    # non-4-core runner on this fork (see e.g. install-e2e.yml job history:
+    # every "ubuntu-latest-32-core" run actually ran on ubuntu-latest, 4-core).
+    # The repo plan is pro on a personal account and has no access to GitHub-hosted
+    # 32-core runners. Matrix is therefore omitted; this is a single job.
+    #
+    # HERMES_TEST_WORKERS=4 matches the 4-core runner 1:1. We have no benchmark
+    # showing oversubscription (e.g. workers=8) helps on this 4-core; without
+    # evidence we pick the safe value. If real CI data later shows 4 is
+    # undersubscribed (CPU idle), bump to 8 in a follow-up.
+    #
+    # Wall-time estimate at 4 workers, 4-core, cache active:
+    #   total CPU work at 32-core ref: 33.671s (5.210 files)
+    #   slowdown 4x on 4-core:        134.685s single-thread CPU work
+    #   perfect efficiency:           134.685 / 4 = 33.671s wall
+    #   50% efficiency:                67.342s = ~67 min
+    #   30% efficiency:                 112.2s = ~112 min (overrun)
+    # We set timeout-minutes 90 to cover realistic efficiency 40-55% with
+    # the LPT scheduler reading the cache, plus headroom for the per-file
+    # scaler 3x expansion on cold files.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Checkout code
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
@@ -55,12 +75,41 @@ jobs:
         run: |
           "$HERMES_PYTHON" -c "import sqlite3, sys, hermes_state_wal as w; v = w.is_sqlite_wal_reset_vulnerable(); print(f'Python {sys.version.split()[0]}, SQLite {sqlite3.sqlite_version}, WAL-reset vulnerable: {v}'); sys.exit(1 if v else 0)"
 
+      # scripts/run_tests_parallel.py raises a file's timeout to 3x its last
+      # healthy duration (_effective_file_timeout) so a known-slow file dilated
+      # by load is not SIGKILL'd at the flat 600s cap. The scaler reads
+      # test_durations.json from the checkout; restoring it from cache is what
+      # makes the scaler non-inert on a fresh runner. Exact key never matches
+      # (run_id differs); restore-keys picks the most recent cache saved by a
+      # main push. PRs read, only main writes.
+      - name: Restore per-file duration cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: test_durations.json
+          key: test-durations-never-exact
+          restore-keys: |
+            test-durations-
+
       - name: Run tests
+        # Per-file isolation via scripts/run_tests.sh: each test file runs in
+        # its own freshly-spawned `python -m pytest <file>` subprocess with
+        # bounded parallelism. No xdist, no shared workers, no module-level
+        # state leakage between files.
         run: |
           scripts/run_tests.sh
         env:
-          HERMES_TEST_WORKERS: 8
+          HERMES_TEST_WORKERS: 4
           HERMES_TEST_FILE_TIMEOUT: 600
+          # Ensure tests don't accidentally call real APIs
           OPENROUTER_API_KEY: ""
           OPENAI_API_KEY: ""
           NOUS_API_KEY: ""
+
+      # Only green first-attempt durations are written by the runner, so a
+      # hang on main cannot ratchet its own bound upward.
+      - name: Save per-file duration cache (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('test_durations.json') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: test_durations.json
+          key: test-durations-${{ github.run_id }}
