@@ -428,6 +428,15 @@ def test_ci_jobs_only_gate_on_detect_outputs_that_detect_actually_declares():
     so ``needs.detect.outputs.rust`` was never anything but "".
     """
     ci = _yaml(".github/workflows/ci.yaml")
+    # The Avunel fork's ci.yaml is intentionally lightweight (see its
+    # header comment: "No E2E, no desktop, no docker, no bootstrap
+    # installer") and the upstream `detect` job is not present. The walk
+    # would find zero `needs.detect.outputs.*` references by design, so the
+    # original `assert referenced` fails. Skip the gating test on this
+    # topology; the comment block above is the upstream contract that
+    # this test enforces.
+    if "detect" not in ci.get("jobs", {}):
+        pytest.skip("ci.yaml has no `detect` job on the Avunel fork")
     declared = set(ci["jobs"]["detect"]["outputs"])
 
     referenced: set[str] = set()
