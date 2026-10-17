@@ -2,6 +2,7 @@ import { GatewayReauthRequiredError } from '@hermes/shared'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { clearNotifications } from '@/store/notifications'
 import { deferred } from '@/test/deferred'
 
 // Collect the component graph before the behavioral test deadline starts.
@@ -64,6 +65,10 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  // Successful saves/sign-outs toast on a 5s timer; a timer that outlives the
+  // jsdom environment fires `window.clearTimeout` against a torn-down window
+  // ("window is not defined") and fails the project despite green tests.
+  clearNotifications()
   vi.clearAllMocks()
 })
 
