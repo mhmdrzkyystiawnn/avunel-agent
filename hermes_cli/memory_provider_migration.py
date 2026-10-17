@@ -95,13 +95,13 @@ def _pending_provider(home: Path, *, say: Callable[[str], None]) -> Optional[str
 def _install_command(name: str, home: Path) -> str:
     """The exact command that installs *name* into *home*. ``-p`` is dropped only for the default
     home while no sticky profile is set: a bare command run from a shell targets the sticky
-    profile, never the home of the agent (Desktop, gateway, ``hermes -p``) that printed it."""
+    profile, never the home of the agent (Desktop, gateway, ``avunel -p``) that printed it."""
     from hermes_cli.profiles import get_active_profile
     from hermes_constants import profile_name_for_home
     profile = profile_name_for_home(home)
     if profile is None or (profile == "default" and get_active_profile() == "default"):
-        return f"hermes plugins install {name}"
-    return f"hermes -p {profile} plugins install {name}"
+        return f"avunel plugins install {name}"
+    return f"avunel -p {profile} plugins install {name}"
 
 
 def _install_pending(home: Path, name: str, *, install: Callable[[str], dict],
