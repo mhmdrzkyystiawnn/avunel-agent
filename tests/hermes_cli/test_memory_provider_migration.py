@@ -229,9 +229,9 @@ def test_startup_hint_installs_into_the_profile_that_printed_it(tmp_path, monkey
 
 
 def test_missing_catalog_provider_recovery_names_the_profile_install_command(tmp_path, monkeypatch, capsys):
-    """Offline, lazy installs off, or a failed migration: every internal surface a user turns to
-    (doctor, ``memory status``, ``memory setup honcho``) names the one command that installs
-    the catalog plugin into THIS profile. Real in-tree catalog, nothing installed."""
+    """Offline, lazy installs off, or a failed migration: every surface a user turns to (doctor,
+    ``memory status``, ``memory setup honcho``, ``avunel honcho``) names the one command that
+    installs the catalog plugin into THIS profile. Real in-tree catalog, nothing installed."""
     from types import SimpleNamespace
     from hermes_cli import doctor_state, memory_setup
     from hermes_cli._parser import build_top_level_parser
@@ -246,13 +246,16 @@ def test_missing_catalog_provider_recovery_names_the_profile_install_command(tmp
     memory_setup.cmd_status(SimpleNamespace())
     memory_setup.cmd_setup_provider("honcho")
     # The 3 internal surfaces (doctor, memory status, memory setup) all carry
-    # the install command. The top-level CLI's unknown-command error is not
-    # asserted here: _plugin_command_install_hint (hermes_cli/_parser.py)
-    # returns None unless prog == "hermes", and this fork's prog is "avunel" —
-    # so `avunel honcho` prints no install hint. That is CLI copy, not the
-    # migration contract this test pins.
+    # the install command; the top-level CLI's unknown-command error is the
+    # fourth surface (``avunel honcho`` exists only once the plugin is
+    # installed, so argparse's error names the installing command).
     out = capsys.readouterr().out
     assert out.count(want) == 3, f"expected 3 occurrences of {want!r} in: {out!r}"
+
+    parser, _subparsers, _chat = build_top_level_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["honcho", "status"])
+    assert want in capsys.readouterr().err
 
 
 def test_recovery_copy_without_a_catalog_memory_entry_keeps_the_generic_hint(tmp_path, monkeypatch, capsys):
