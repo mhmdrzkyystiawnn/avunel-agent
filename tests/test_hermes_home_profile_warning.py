@@ -4,7 +4,9 @@ Regression test for https://github.com/NousResearch/hermes-agent/issues/18594.
 
 When HERMES_HOME is unset but an active_profile file indicates a non-default
 profile is active, get_hermes_home() should:
-  1. STILL return ~/.hermes (raising would brick 30+ module-level callers)
+  1. STILL return the default home (raising would brick 30+ module-level
+     callers). On the Avunel fork that default is ``~/.avunel``; the legacy
+     ``~/.hermes`` only wins when it already exists on disk.
   2. Emit a loud one-shot warning to stderr so operators can diagnose
      cross-profile data contamination after the fact.
 
@@ -34,9 +36,12 @@ class TestGetHermesHomeProfileWarning:
     def test_classic_mode_no_active_profile_no_warning(
         self, fresh_constants, tmp_path, capsys
     ):
-        """Classic mode: no active_profile file → silent, returns ~/.hermes."""
+        """Classic mode: no active_profile file → silent, returns the default home."""
         result = fresh_constants.get_hermes_home()
-        assert result == tmp_path / ".hermes"
+        # The Avunel fork's default is ~/.avunel (avunelPlatformDefaultHome);
+        # the legacy ~/.hermes would only win when the directory already
+        # exists on disk. tmp_path is fresh, so ~/.avunel wins.
+        assert result == tmp_path / ".avunel"
         assert "HERMES_HOME fallback" not in capsys.readouterr().err
 
 
@@ -45,14 +50,14 @@ class TestGetHermesHomeProfileWarning:
         self, fresh_constants, tmp_path, capsys
     ):
         """active_profile=coder + HERMES_HOME unset → warn loudly, still return fallback."""
-        hermes_dir = tmp_path / ".hermes"
+        hermes_dir = tmp_path / ".avunel"
         hermes_dir.mkdir()
         (hermes_dir / "active_profile").write_text("coder\n")
 
         result = fresh_constants.get_hermes_home()
 
         # 1. Still returns the fallback — no import-time crash
-        assert result == tmp_path / ".hermes"
+        assert result == tmp_path / ".avunel"
         # 2. Stderr got the warning exactly once
         err = capsys.readouterr().err
         assert err.count("HERMES_HOME fallback") == 1
@@ -68,9 +73,9 @@ class TestGetHermesHomeProfileWarning:
         self, fresh_constants, tmp_path, capsys, monkeypatch
     ):
         """Even if active_profile is 'coder', setting HERMES_HOME suppresses warning."""
-        profile_dir = tmp_path / ".hermes" / "profiles" / "coder"
+        profile_dir = tmp_path / ".avunel" / "profiles" / "coder"
         profile_dir.mkdir(parents=True)
-        (tmp_path / ".hermes" / "active_profile").write_text("coder\n")
+        (tmp_path / ".avunel" / "active_profile").write_text("coder\n")
         monkeypatch.setenv("HERMES_HOME", str(profile_dir))
 
         result = fresh_constants.get_hermes_home()
@@ -83,14 +88,14 @@ class TestGetHermesHomeProfileWarning:
         self, fresh_constants, tmp_path, capsys
     ):
         """active_profile that can't be decoded → fall through silently."""
-        hermes_dir = tmp_path / ".hermes"
+        hermes_dir = tmp_path / ".avunel"
         hermes_dir.mkdir()
         # Write bytes that aren't valid utf-8
         (hermes_dir / "active_profile").write_bytes(b"\xff\xfe\x00\x00")
 
         result = fresh_constants.get_hermes_home()
 
-        assert result == tmp_path / ".hermes"
+        assert result == tmp_path / ".avunel"
         # Shouldn't crash; shouldn't warn either (can't tell what profile was intended)
         assert "HERMES_HOME fallback" not in capsys.readouterr().err
 
@@ -111,7 +116,7 @@ class TestBootReadersBeforeProfileOverride:
         self, fresh_constants, tmp_path, capsys
     ):
         """Boot scratch setup: silent, and pointed at the home the bootstrap resolved."""
-        hermes_dir = tmp_path / ".hermes"
+        hermes_dir = tmp_path / ".avunel"
         (hermes_dir / "profiles" / "coder").mkdir(parents=True)
         (hermes_dir / "active_profile").write_text("coder\n")
         capsys.readouterr()  # drop anything the setup above printed
@@ -126,7 +131,7 @@ class TestBootReadersBeforeProfileOverride:
         self, fresh_constants, tmp_path, capsys
     ):
         """A caller that passes a home (`hermes doctor` for another profile) stays silent."""
-        hermes_dir = tmp_path / ".hermes"
+        hermes_dir = tmp_path / ".avunel"
         profile_dir = hermes_dir / "profiles" / "coder"
         profile_dir.mkdir(parents=True)
         (hermes_dir / "active_profile").write_text("coder\n")

@@ -2190,7 +2190,7 @@ cli:
   render:
     response_transformed: "[تم تحويل الرد بعد البث]"
     banner_tagline: "{name} - إطار عمل وكلاء الذكاء الاصطناعي"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "لا يمكن توجيه عمليات الخلفية؛ أوقفها أو اقرأ السجل."
     count_live: "{count} نشطة"

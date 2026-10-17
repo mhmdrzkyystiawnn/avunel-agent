@@ -47,8 +47,13 @@ test('POSIX backend PATH keeps the inherited PATH first and appends missing sane
 test('backend runs the store toolchain even after the login-shell PATH is merged in front of it', async () => {
   // `hermes desktop` hands Electron a PATH with the PM store first; the
   // login-shell merge then puts nvm/Homebrew ahead of it in process.env.
+  // The store paths live under <resolveDesktopHermesHome>/tools: on this
+  // fork that is <homedir>/.avunel/tools (avunelPlatformDefaultHome). The
+  // previous fixture used .hermes/tools, but after the rebrand that path
+  // falls outside the source's `roots` and storeFirstPath stops hoisting
+  // (verified by the CI run of 2026-10-16/17).
   const env: Record<string, string> = {
-    PATH: '/Users/u/.hermes/tools/node-26.7.0-darwin-arm64/bin:/Users/u/.hermes/tools/uv-0.12.3-darwin-arm64:/usr/bin:/bin'
+    PATH: '/Users/u/.avunel/tools/node-26.7.0-darwin-arm64/bin:/Users/u/.avunel/tools/uv-0.12.3-darwin-arm64:/usr/bin:/bin'
   }
 
   const loginPath = '/Users/u/.nvm/versions/node/v20.0.0/bin:/opt/homebrew/bin:/usr/bin'
@@ -64,9 +69,18 @@ test('backend runs the store toolchain even after the login-shell PATH is merged
 
   const backend = buildDesktopBackendEnv({ currentEnv: env, platform: 'darwin', homedir: '/Users/u' })
 
+  // storeFirstPath hoists every store-owned entry to the front. Both
+  // .avunel/tools entries are recognised as descendants of
+  // resolveDesktopHermesHome().home/tools (the `roots` set in storeFirstPath).
+  // They rise above the user's login-shell entries (nvm, Homebrew) so the
+  // spawned Python backend inherits the same node/uv binaries the desktop
+  // shell used, even if the user later rearranges the login order. The
+  // remaining entries keep their original order; POSIX_SANE_PATH_ENTRIES is
+  // appended only for the ones not already present.
+  // First 5 matches the live source output verified at runtime.
   assert.deepEqual(backend.PATH.split(':').slice(0, 5), [
-    '/Users/u/.hermes/tools/node-26.7.0-darwin-arm64/bin',
-    '/Users/u/.hermes/tools/uv-0.12.3-darwin-arm64',
+    '/Users/u/.avunel/tools/node-26.7.0-darwin-arm64/bin',
+    '/Users/u/.avunel/tools/uv-0.12.3-darwin-arm64',
     '/Users/u/.nvm/versions/node/v20.0.0/bin',
     '/opt/homebrew/bin',
     '/usr/bin'

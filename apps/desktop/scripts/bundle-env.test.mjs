@@ -34,8 +34,8 @@ test('explicit clears beat inherited homes and prevent Windows registry fallback
     delete env.HERMES_DATA_DIR_SUFFIX
     delete env.HERMES_DESKTOP_USER_DATA_DIR
     const actual = JSON.parse(execFileSync(process.execPath, [outfile], { env, encoding: 'utf8' }))
-    expect(actual).toEqual({ cleared: '', home: 'C:\\Users\\test\\AppData\\Local\\hermesmagic-test',
-      child: 'C:\\Users\\test\\AppData\\Local\\hermesmagic-test', registryReads: 0 })
+    expect(actual).toEqual({ cleared: '', home: 'C:\\Users\\test\\AppData\\Local\\avunelmagic-test',
+      child: 'C:\\Users\\test\\AppData\\Local\\avunelmagic-test', registryReads: 0 })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

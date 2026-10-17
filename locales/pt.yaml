@@ -2190,7 +2190,7 @@ cli:
   render:
     response_transformed: "[Resposta transformada após o streaming]"
     banner_tagline: "{name} - Framework de Agentes de IA"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "Processos em segundo plano não podem ser redirecionados; pare-os ou leia o log."
     count_live: "{count} ativos"

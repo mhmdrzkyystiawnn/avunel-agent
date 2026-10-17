@@ -25,6 +25,12 @@ _VALUE_FLAGS_FALLBACK: frozenset[str] = frozenset({
 })
 _OPTIONAL_VALUE_FLAGS_FALLBACK: frozenset[str] = frozenset({"-c", "--continue"})
 
+#: The CLI's own program name — what argparse prints in usage/error text and what the
+#: top-level-only gates compare against. One home for it: ``_plugin_command_install_hint``
+#: shipped with a literal ``"hermes"`` and silently stopped firing once ``prog`` became
+#: ``"avunel"``, so every top-level memory-plugin command lost its install hint.
+_TOP_LEVEL_PROG = "avunel"
+
 
 def _cfg_path() -> str:
     """``~/.hermes/config.yaml`` spelled for the active profile, for help text.
@@ -321,8 +327,8 @@ def _build_chat_parser(subparsers) -> argparse.ArgumentParser:
 
 def _plugin_command_install_hint(prog: str, value: str):
     """Install command when *value* names a catalog memory plugin that resolves nowhere: its
-    ``hermes <name>`` command exists only once the plugin is installed. Top level only; never raises."""
-    if prog != "hermes" or not re.fullmatch(r"[a-z0-9_-]{1,64}", value):
+    ``<prog> <name>`` command exists only once the plugin is installed. Top level only; never raises."""
+    if prog != _TOP_LEVEL_PROG or not re.fullmatch(r"[a-z0-9_-]{1,64}", value):
         return None
     try:
         from plugins.memory import find_provider_dir
@@ -368,7 +374,7 @@ def build_top_level_parser():
     ``subparsers.add_parser(...)``.
     """
     parser = HermesArgumentParser(
-        prog="avunel", description="Avunel - AI assistant with tool-calling capabilities",
+        prog=_TOP_LEVEL_PROG, description="Avunel - AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=_EPILOGUE)
     _add_top_level_flags(parser)
     # metavar keeps the usage line to ``hermes [...] <command>`` instead of the brace list of

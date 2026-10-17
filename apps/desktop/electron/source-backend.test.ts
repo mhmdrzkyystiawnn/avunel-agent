@@ -184,13 +184,17 @@ test.skipIf(process.platform === 'win32')(
           assert.equal(source.command, fixture.python)
           assert.match(
             // The real spawn runs in the user's workspace, never the checkout.
+            // We match the canonical product name, which is `Avunel` on this
+            // fork (was `Hermes` upstream). See PRODUCT_NAME in
+            // hermes_constants. The slash and dot in the matched string mean
+            // grep treats this as a literal substring.
             execFileSync(source.command, source.args, {
               cwd: temp,
               env: { ...env, ...source.env },
               encoding: 'utf8',
               timeout: 15_000
             }),
-            /Hermes/
+            /Avunel/
           )
           assert.equal(fs.existsSync(poison), false)
         }

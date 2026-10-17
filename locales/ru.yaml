@@ -2190,7 +2190,7 @@ cli:
   render:
     response_transformed: "[Ответ преобразован после потоковой передачи]"
     banner_tagline: "{name} — фреймворк ИИ-агентов"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "Фоновые процессы нельзя корректировать; остановите их или прочитайте лог."
     count_live: "активных: {count}"

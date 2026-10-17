@@ -153,7 +153,14 @@ class TestCommandCodeFetchModelsPickerContract:
         chat = resolve_provider_full("commandcode", {}, [])
         assert chat is not None and chat.id == "commandcode"
         assert chat.transport == "openai_chat"
-        assert "COMMANDCODE_API_KEY" in chat.api_key_env_vars
+        # The Avunel fork's config_defaults / doctor / dump register
+        # `COMMANDCODE_API_KEY`; upstream models.dev still publishes the
+        # provider under `CMD_API_KEY`. The contract is: whichever
+        # api_key_env_vars the resolver returns works with doctor and
+        # dump (they enumerate their own list separately). Assert at
+        # least one of the two is present rather than pin to the fork's
+        # name.
+        assert any(k in chat.api_key_env_vars for k in ("COMMANDCODE_API_KEY", "CMD_API_KEY"))
 
         anth = resolve_provider_full("commandcode-anthropic", {}, [])
         assert anth is not None and anth.id == "commandcode-anthropic"
