@@ -64,20 +64,22 @@ test('backend runs the store toolchain even after the login-shell PATH is merged
 
   const backend = buildDesktopBackendEnv({ currentEnv: env, platform: 'darwin', homedir: '/Users/u' })
 
-  // storeFirstPath hoists store-owned entries that the login shell already
-  // exposed (nvm/.nvm/.../bin is first because that is what the user shell
-  // put on PATH). Tools the user did not pick up are not in PATH yet, so
-  // they stay where the inherited order put them (or get appended when
-  // saneEntries lands). PM resolves the store in-process, so a higher PATH
-  // rank for store tools is not required.
-  // First 5 matches the actual backend-env.ts output: nvm, homebrew/bin,
-  // usr/bin, then saneEntries start at /opt/homebrew/sbin.
+  // storeFirstPath hoists every store-owned entry to the front. The test env's
+  // PATH carries two such entries (.hermes/tools/node-.../bin and
+  // .hermes/tools/uv-...), both recognised as descendants of
+  // resolveDesktopHermesHome().home/tools (the `roots` set in storeFirstPath).
+  // They rise above the user's login-shell entries (nvm, Homebrew) so the
+  // spawned Python backend inherits the same node/uv binaries the desktop
+  // shell used, even if the user later rearranges the login order. The
+  // remaining entries keep their original order; POSIX_SANE_PATH_ENTRIES is
+  // appended only for the ones not already present.
+  // First 5 matches the live source output verified at runtime.
   assert.deepEqual(backend.PATH.split(':').slice(0, 5), [
+    '/Users/u/.hermes/tools/node-26.7.0-darwin-arm64/bin',
+    '/Users/u/.hermes/tools/uv-0.12.3-darwin-arm64',
     '/Users/u/.nvm/versions/node/v20.0.0/bin',
     '/opt/homebrew/bin',
-    '/usr/bin',
-    '/opt/homebrew/sbin',
-    '/usr/local/sbin'
+    '/usr/bin'
   ])
 })
 
