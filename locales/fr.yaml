@@ -2463,7 +2463,7 @@ cli:
   render:
     response_transformed: "[Réponse transformée après la diffusion en continu]"
     banner_tagline: "{name} - Framework d'agent IA"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "Les processus en arrière-plan ne peuvent pas être orientés ; arrêtez-les ou lisez le journal."
     count_live: "{count} en cours"

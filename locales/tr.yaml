@@ -2190,7 +2190,7 @@ cli:
   render:
     response_transformed: "[Yanıt akıştan sonra dönüştürüldü]"
     banner_tagline: "{name} - Yapay Zekâ Ajan Çerçevesi"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "Arka plan süreçleri yönlendirilemez; durdurun veya günlüğü okuyun."
     count_live: "{count} canlı"

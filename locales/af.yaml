@@ -2190,7 +2190,7 @@ cli:
   render:
     response_transformed: "[Antwoord na stroming getransformeer]"
     banner_tagline: "{name} - KI-agentraamwerk"
-    banner_version: "Hermes Agent v{version} ({date})"
+    banner_version: "Avunel {avunel_version} · Hermes v{version} ({date})"
   subagents:
     cannot_steer_process: "Agtergrondprosesse kan nie gestuur word nie; stop hulle of lees die log."
     count_live: "{count} lewendig"
