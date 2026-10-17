@@ -24,17 +24,32 @@ _STATE_DB_GUARD_BYPASS_ENV = "HERMES_STATE_DB_GUARD_BYPASS"
 
 
 def _real_platform_state_root() -> Optional[Path]:
-    """The REAL platform-default Hermes root. Avoids ``Path.home()`` /
-    ``hermes_constants`` (tests monkeypatch Path.home to a tempdir); ``expanduser``
-    reads HOME/passwd, which the conftest never rewrites."""
+    """The REAL platform-default Hermes root — the one the runtime itself resolves.
+
+    Avoids ``Path.home()`` / ``hermes_constants`` (tests monkeypatch Path.home to a
+    tempdir); ``expanduser`` reads HOME/passwd, which the conftest never rewrites, so
+    the guard still points at the operator's real install while the suite runs
+    hermetic.
+
+    Mirrors ``hermes_constants._get_platform_default_hermes_home``: Avunel's default is
+    ``~/.avunel`` (``%LOCALAPPDATA%\\avunel`` on Windows) and the pre-rebrand
+    ``~/.hermes`` is used only while Avunel's directory is absent and the legacy one
+    exists. Returning the *effective* root is what makes the guard refuse the right DB
+    when a subprocess child loses ``HERMES_HOME`` and falls back to the platform
+    default (#avunel-rebrand).
+    """
     try:
         home = Path(os.path.expanduser("~"))
         if sys.platform == "win32":
             base = os.environ.get("LOCALAPPDATA", "").strip()
-            root = Path(base) / "hermes" if base else home / "AppData" / "Local" / "hermes"
+            if not base:
+                return None
+            avunel_home, legacy_home = Path(base) / "avunel", Path(base) / "hermes"
         else:
-            root = home / ".hermes"
-        return root.resolve()
+            avunel_home, legacy_home = home / ".avunel", home / ".hermes"
+        if not avunel_home.exists() and legacy_home.exists():
+            return legacy_home.resolve()
+        return avunel_home.resolve()
     except Exception:
         return None
 
