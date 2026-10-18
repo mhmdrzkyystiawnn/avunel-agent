@@ -132,17 +132,23 @@ class TestFetchFailure:
 
 class TestFallbackChain:
     """``_fetch_manifest_with_fallback`` walks ``DEFAULT_CATALOG_FALLBACK_URLS``
-    when the primary URL fails. Regression: the Docusaurus site behind Vercel
-    occasionally returns HTTP 403 + x-vercel-mitigated: challenge for urllib;
-    without a fallback URL the user's disk cache freezes and new model
-    releases (opus 4.8, etc.) never reach the picker.
+    when the primary URL fails. Regression: a primary URL served behind a bot
+    challenge can return HTTP 403 for urllib; without a fallback URL the user's
+    disk cache freezes and new model releases never reach the picker.
+
+    The URLs come from the module rather than being spelled here, so a change to
+    ``DEFAULT_CATALOG_URL`` cannot silently turn these tests into no-ops.
     """
 
-    PRIMARY = "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json"
-    FALLBACK = (
-        "https://raw.githubusercontent.com/NousResearch/hermes-agent"
-        "/main/website/static/api/model-catalog.json"
-    )
+    @property
+    def PRIMARY(self) -> str:
+        from hermes_cli import model_catalog
+        return model_catalog.DEFAULT_CATALOG_URL
+
+    @property
+    def FALLBACK(self) -> str:
+        from hermes_cli import model_catalog
+        return model_catalog.DEFAULT_CATALOG_FALLBACK_URLS[0]
 
     def test_uses_primary_when_it_succeeds(self, isolated_home):
         from hermes_cli import model_catalog
