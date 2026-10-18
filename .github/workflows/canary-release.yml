@@ -30,6 +30,13 @@ jobs:
     runs-on: ubuntu-24.04
     # A dispatch from a feature branch would tag unmerged code as the canary.
     if: github.ref_name == github.event.repository.default_branch
+    env:
+      # The canary publishes its head to the channel host. Without credentials the
+      # tag step fails inside release.py (scripts/releases/r2.py exits 2 on a
+      # missing account id), so the whole run would go red every day on a
+      # repository that has no channel host yet. Gate on the credential instead:
+      # unconfigured means "no channel host", which is a skip, not a failure.
+      CLOUDFLARE_R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_R2_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
         with:
@@ -38,7 +45,17 @@ jobs:
           # the tag math reads the full tag list
           fetch-tags: true
 
+      - name: Skip without a channel host
+        if: env.CLOUDFLARE_R2_ACCOUNT_ID == ''
+        run: |
+          echo "::notice::No channel host configured (CLOUDFLARE_R2_ACCOUNT_ID unset); skipping the canary."
+          {
+            echo "### Canary skipped"
+            echo "No channel host is configured for this repository, so there is nowhere to publish a canary head."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Tag and draft
+        if: env.CLOUDFLARE_R2_ACCOUNT_ID != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
