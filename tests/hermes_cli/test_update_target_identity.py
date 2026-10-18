@@ -15,6 +15,7 @@ import pytest
 
 from hermes_cli import main as cli_main, update_cmd, update_receipt
 from hermes_cli.update_inventory import UpdatePlan
+from hermes_cli.source_releases import OFFICIAL_REPOSITORY
 from hermes_cli.update_cmd import _sync_with_upstream_if_needed
 
 
@@ -168,11 +169,11 @@ def test_stable_git_uses_remote_identity_without_moving_local_tags(update_tree, 
     t = update_tree
     # The stable channel is an R2 record whose published build pins t.wanted
     # (the documented reader seam; see test_source_channel_integration).
-    record = {"schema": 1, "name": "stable", "repository": "NousResearch/hermes-agent",
+    record = {"schema": 1, "name": "stable", "repository": OFFICIAL_REPOSITORY,
               "policy": "stable-release", "state": "active", "identity": {}, "nextSequence": 2,
               "head": {"buildId": "build-fixture", "sequence": 1}}
     manifest = {"schema": 1, "request": {"buildId": "build-fixture", "channel": "stable", "sequence": 1,
-                "repository": "NousResearch/hermes-agent", "commit": t.wanted, "sourceVersion": "1.1.0",
+                "repository": OFFICIAL_REPOSITORY, "commit": t.wanted, "sourceVersion": "1.1.0",
                 "version": "0.0.1", "identity": {}, "bundleEnv": {}}, "packages": []}
     monkeypatch.setattr(source_releases, '_resolve_channel',
                         lambda name, repository: ChannelResolution(record, record, manifest))
@@ -245,11 +246,11 @@ def test_stable_zip_consumes_the_same_commit_through_the_real_swap(update_tree, 
     archive = tmp_path / 'source.zip'
     git(t.origin, 'archive', '--format=zip', '--prefix=hermes-agent-source/', f'--output={archive}', t.wanted)
     archive_bytes = archive.read_bytes()
-    record = {"schema": 1, "name": "stable", "repository": "NousResearch/hermes-agent",
+    record = {"schema": 1, "name": "stable", "repository": OFFICIAL_REPOSITORY,
               "policy": "stable-release", "state": "active", "identity": {}, "nextSequence": 2,
               "head": {"buildId": "build-fixture", "sequence": 1}}
     manifest = {"schema": 1, "request": {"buildId": "build-fixture", "channel": "stable", "sequence": 1,
-                "repository": "NousResearch/hermes-agent", "commit": t.wanted, "sourceVersion": "1.1.0",
+                "repository": OFFICIAL_REPOSITORY, "commit": t.wanted, "sourceVersion": "1.1.0",
                 "version": "0.0.1", "identity": {}, "bundleEnv": {}}, "packages": []}
     monkeypatch.setattr(source_releases, '_resolve_channel',
                         lambda name, repository: ChannelResolution(record, record, manifest))

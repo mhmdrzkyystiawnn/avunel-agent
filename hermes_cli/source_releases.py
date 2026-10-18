@@ -13,8 +13,34 @@ import urllib.request
 from hermes_cli.update_channel import STABLE_TAG_RE, is_canary_tag
 
 logger = logging.getLogger(__name__)
+# The asset host the channel reader queries. Avunel publishes no channel records
+# anywhere yet, so this host is never a valid source for this repository;
+# `_channel_host_serves` below is what enforces that. Repointing it at an Avunel
+# host is deferred until such a host actually serves records.
 _PUBLIC_BASE = "https://hermes-assets.nousresearch.com"
-OFFICIAL_REPOSITORY = "NousResearch/hermes-agent"
+OFFICIAL_REPOSITORY = "mhmdrzkyystiawnn/avunel-agent"
+
+# The one host known to publish channel records, and the repositories it
+# publishes them for. Avunel is deliberately absent: it has no records there, and
+# reading that host anyway is how one project inherits another's release pointer.
+_CHANNEL_HOST = "https://hermes-assets.nousresearch.com"
+_CHANNEL_HOST_PUBLISHERS: frozenset[str] = frozenset({"nousresearch/hermes-agent"})
+
+
+def _channel_host_serves(repository: str) -> bool:
+    """Whether the configured channel host publishes records for ``repository``.
+
+    Fails closed, but only for the host this guard knows about. A caller that
+    repoints ``_PUBLIC_BASE`` (a test server, a future Avunel host) is trusted to
+    have pointed it at a host that serves what it asks for — the guard exists to
+    stop the production host from answering for a project it does not publish,
+    not to second-guess an explicitly redirected one.
+    """
+    if _PUBLIC_BASE != _CHANNEL_HOST:
+        return True
+    return repository.strip().casefold() in _CHANNEL_HOST_PUBLISHERS
+
+
 _GITHUB_ORIGIN = re.compile(
     r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?$", re.IGNORECASE,
@@ -66,9 +92,16 @@ def _resolve_channel(name: str, repository: str):
     admits its retirement constraints before any checkout operation. No legacy
     GitHub fallback is allowed when a record is unavailable; the one exception
     is an unpublished ``main`` record, which resolves to the main branch.
-    """
-    from hermes_cli.release_channels import ChannelReader
 
+    A repository whose records are not published on this host is reported as a
+    missing channel — ``ChannelNotFound``, not ``ChannelError`` — so ``main``
+    still resolves to its branch while ``stable``/``canary`` fail closed with
+    "not found" instead of being handed another project's pointer.
+    """
+    from hermes_cli.release_channels import ChannelNotFound, ChannelReader
+
+    if not _channel_host_serves(repository):
+        raise ChannelNotFound(f"No channel records published for {repository}")
     return ChannelReader(_PUBLIC_BASE, repository=repository).resolve(name)
 
 
@@ -219,7 +252,16 @@ def _published_fallback(channel: str, base: str) -> dict:
     raise ValueError(f"No published {channel} release")
 
 
-def _release_pointer(channel: str) -> tuple[str | None, str | None]:
+def _release_pointer(channel: str, repository: str | None = None) -> tuple[str | None, str | None]:
+    """Pointer published on the channel host, or ``(None, None)``.
+
+    Only meaningful for a repository whose records live on that host. The caller
+    passes the repository it is resolving; omitting it means the installation's
+    own repository. Either way the host must serve that repository, so a host
+    carrying another project's records can never answer here.
+    """
+    if not _channel_host_serves(repository or OFFICIAL_REPOSITORY):
+        return None, None
     # Stable's completion job writes this before publishing the GitHub draft.
     # Publication is checked separately, so that interval fails closed.
     if channel == "stable":
@@ -254,7 +296,7 @@ def resolve_source_release(channel: str, git_cmd=None, cwd=None, *, repository=N
     try:
         repository = repository or source_repository(git_cmd, cwd)
         base = f"https://api.github.com/repos/{repository}"
-        tag, pinned_sha = (_release_pointer(channel)
+        tag, pinned_sha = (_release_pointer(channel, repository)
                            if repository.lower() == OFFICIAL_REPOSITORY.lower() else (None, None))
         if tag is None:
             release = _published_fallback(channel, base)

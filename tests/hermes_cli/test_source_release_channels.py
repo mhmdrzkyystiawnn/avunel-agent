@@ -10,8 +10,12 @@ from urllib.parse import urlsplit
 import pytest
 
 from hermes_cli import main, update_cmd
-from hermes_cli.source_releases import resolve_source_release
+from hermes_cli.source_releases import OFFICIAL_REPOSITORY, resolve_source_release
 from hermes_cli.update_channel import set_install_channel
+
+# The repository this installation resolves against. Read from the module so the
+# fixture keeps playing "the installation's own repo" after the slug changes.
+REPO = OFFICIAL_REPOSITORY
 
 
 def git(root, *args):
@@ -49,6 +53,11 @@ def releases(tmp_path, monkeypatch, request):
     monkeypatch.setattr(main, "PROJECT_ROOT", checkout)
     monkeypatch.setenv("HERMES_INSTALL_ROOT", str(checkout))
     monkeypatch.delenv("HERMES_MANAGED", raising=False)
+    # The clone's origin is a local path, so source_repository() cannot parse it
+    # into a GitHub slug and falls back to OFFICIAL_REPOSITORY. Make that fallback
+    # this fixture's repository: the legacy pointer path only answers for it.
+    from hermes_cli import source_releases
+    monkeypatch.setattr(source_releases, "OFFICIAL_REPOSITORY", REPO)
 
     responses = {}
     requests = []
@@ -56,10 +65,10 @@ def releases(tmp_path, monkeypatch, request):
         responses[f"/releases/{channel}/index.html"] = (
             f'<meta name="hermes-build" content="{tag}">'
         )
-        responses[f"/repos/NousResearch/hermes-agent/releases/tags/{tag}"] = {
+        responses[f"/repos/{REPO}/releases/tags/{tag}"] = {
             "tag_name": tag, "draft": False, "prerelease": channel == "canary",
         }
-        responses[f"/repos/NousResearch/hermes-agent/commits/{tag}"] = {
+        responses[f"/repos/{REPO}/commits/{tag}"] = {
             "sha": commits[1 if channel == "stable" else 2],
         }
     responses["/releases/stable/release-candidates.json"] = {
@@ -90,6 +99,12 @@ def releases(tmp_path, monkeypatch, request):
                         + (f"?{parsed.query}" if parsed.query else ""), *args, **kwargs)
 
     monkeypatch.setattr(urllib.request, "urlopen", local_urlopen)
+    # This server stands in for the channel host and does serve this repository's
+    # records, so the host-ownership guard must see it as the configured host
+    # rather than the production one. urlopen is redirected below regardless of
+    # the host in the URL, so repointing _PUBLIC_BASE only informs the guard.
+    from hermes_cli import source_releases as _sr
+    monkeypatch.setattr(_sr, "_PUBLIC_BASE", f"http://127.0.0.1:{server.server_port}")
     # Legacy pointer tests below retain their HTTP/tag boundary. New CLI callers
     # consume the protocol reader, whose complete schema is tested independently.
     from hermes_cli import source_releases
@@ -207,7 +222,7 @@ def test_zip_fallback_keeps_selected_repository_and_commit(releases, monkeypatch
 
 @pytest.mark.parametrize("git_cmd", [["git"], None], ids=["git", "no-git"])
 def test_selected_draft_never_falls_back_to_other_tags(releases, git_cmd):
-    releases.responses[f"/repos/NousResearch/hermes-agent/releases/tags/{releases.tags['stable']}"]["draft"] = True
+    releases.responses[f"/repos/{REPO}/releases/tags/{releases.tags['stable']}"]["draft"] = True
     assert resolve_source_release("stable", git_cmd, releases.root) == (None, None)
     assert not any("/tags?" in path for path in releases.requests)
 
@@ -233,9 +248,9 @@ def test_origin_tag_cannot_substitute_a_fork_commit(releases, channel):
 def test_missing_pointers_fall_back_only_to_published_releases(releases, channel):
     releases.responses.pop("/releases/stable/release-candidates.json")
     releases.responses.pop(f"/releases/{channel}/index.html")
-    published = releases.responses[f"/repos/NousResearch/hermes-agent/releases/tags/{releases.tags[channel]}"]
-    releases.responses["/repos/NousResearch/hermes-agent/releases/latest"] = published
-    releases.responses["/repos/NousResearch/hermes-agent/releases?per_page=100&page=1"] = [
+    published = releases.responses[f"/repos/{REPO}/releases/tags/{releases.tags[channel]}"]
+    releases.responses[f"/repos/{REPO}/releases/latest"] = published
+    releases.responses[f"/repos/{REPO}/releases?per_page=100&page=1"] = [
         {"tag_name": "v99.0.1+canary.20260912T125822Z", "draft": True, "prerelease": True},
         published,
     ]
@@ -243,4 +258,4 @@ def test_missing_pointers_fall_back_only_to_published_releases(releases, channel
         releases.tags[channel], releases.commits[1 if channel == "stable" else 2],
     )
     assert not any("/tags?" in path for path in releases.requests)
-    assert f"/repos/NousResearch/hermes-agent/releases/tags/{releases.tags[channel]}" not in releases.requests
+    assert f"/repos/{REPO}/releases/tags/{releases.tags[channel]}" not in releases.requests
