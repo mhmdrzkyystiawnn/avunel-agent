@@ -40,12 +40,17 @@ jobs:
     #   slowdown 4x on 4-core:        134.685s single-thread CPU work
     #   perfect efficiency:           134.685 / 4 = 33.671s wall
     #   50% efficiency:                67.342s = ~67 min
-    #   30% efficiency:                 112.2s = ~112 min (overrun)
-    # We set timeout-minutes 90 to cover realistic efficiency 40-55% with
-    # the LPT scheduler reading the cache, plus headroom for the per-file
-    # scaler 3x expansion on cold files.
+    #   30% efficiency:                 112.2s = ~112 min
+    # Real wall time on this fork's 4-core runner (2026-10-17/18): 67, 78 and
+    # 86 min for green runs — 30-40% efficiency, not the 40-55% an earlier
+    # bound assumed. That bound (90 min) cancelled the 2026-10-18 main run
+    # (39108982764) while the suite was still working, and the cancelled job
+    # failed the "All required checks pass" gate.
+    # So there is deliberately no job-level bound: scripts/run_tests.sh already
+    # caps every test file (HERMES_TEST_FILE_TIMEOUT=600), which is where a real
+    # hang shows up. A wall bound here only converts a slow runner into a false
+    # failure. GitHub's hosted-job ceiling of 6 hours still applies.
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
       - name: Checkout code
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
