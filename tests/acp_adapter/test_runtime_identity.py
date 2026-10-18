@@ -20,7 +20,7 @@ def test_version_flag_displays_derived_version(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert out.startswith("Avunel 0.1.0\n")
-    assert "Based on Hermes v1.2.3" in out
+    assert "Base: Hermes v1.2.3" in out
 
 
 def test_version_slash_command_displays_derived_version(monkeypatch):
@@ -33,7 +33,7 @@ def test_version_slash_command_displays_derived_version(monkeypatch):
     state = cast(SessionState, SimpleNamespace(cwd="."))
     out = agent._handle_slash_command("/version", state)
     assert out.startswith("Avunel 0.1.0")
-    assert "Based on Hermes v1.2.3" in out
+    assert "Base: Hermes v1.2.3" in out
 
 
 @pytest.mark.asyncio
