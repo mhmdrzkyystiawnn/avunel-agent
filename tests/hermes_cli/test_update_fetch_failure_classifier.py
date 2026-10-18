@@ -124,7 +124,12 @@ def test_update_network_git_calls_never_prompt_for_credentials():
 
 
 def test_update_and_upstream_network_calls_disable_terminal_prompts(monkeypatch, tmp_path):
-    """Exercise origin fetch and fork fetch/pull/push, not their source spelling."""
+    """Origin network calls still disable terminal prompts; the upstream sync is a no-op.
+
+    Avunel does not track upstream Hermes (K9), so ``_sync_with_upstream_if_needed``
+    issues no git calls at all. The origin fetch path is unchanged and must keep
+    the non-interactive credential environment.
+    """
     import subprocess
     from hermes_cli import update_cmd_git
 
@@ -145,8 +150,9 @@ def test_update_and_upstream_network_calls_disable_terminal_prompts(monkeypatch,
 
     monkeypatch.setattr(subprocess, "run", run)
     update_cmd._git_run(["git"], ["fetch", "origin", "main"], cwd=tmp_path, network=True, check=True)
-    assert update_cmd_git._sync_with_upstream_if_needed(["git"], tmp_path, assume_yes=True)
-    assert [args[0] for args, _ in calls] == ["fetch", "fetch", "pull", "push"]
+    # No upstream sync: the stub returns False and touches no remote.
+    assert update_cmd_git._sync_with_upstream_if_needed(["git"], tmp_path, assume_yes=True) is False
+    assert [args[0] for args, _ in calls] == ["fetch"]
     for args, kwargs in calls:
         assert kwargs["stdin"] is subprocess.DEVNULL, args
         env = kwargs["env"]

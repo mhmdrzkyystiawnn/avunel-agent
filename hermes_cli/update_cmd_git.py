@@ -26,7 +26,6 @@ _ORPHAN_RESCUE_REF_MAX_AGE_DAYS = 30
 _GIT_TEXT_KW = dict(capture_output=True, text=True, encoding="utf-8", errors="replace",
                    creationflags=windows_hide_flags())
 _BAR = "=" * 68
-_UPSTREAM_ADD_CMD = "git remote add upstream https://github.com/NousResearch/hermes-agent.git"
 
 
 def _git_ok(git_cmd, args, cwd, **kw) -> bool:
@@ -302,88 +301,23 @@ def _sync_fork_with_upstream(git_cmd: list[str], cwd: Path) -> bool:
 
 
 def _offer_upstream_remote(git_cmd: list[str], cwd: Path, *, assume_yes: bool, input_fn) -> bool:
-    """Prompt to add ``upstream`` and add it; False when the user declined, the run is non-interactive, or add failed.
+    """Avunel does not track upstream Hermes: no upstream remote is ever offered.
 
-    ``--yes`` means "don't block", not "mutate my remotes", so a non-interactive skip is NOT persisted."""
-    from hermes_cli.update_cmd import _add_upstream_remote, _mark_skip_upstream_prompt
-    print(
-        "\nℹ Your fork is not tracking the official Hermes repository.\n"
-        "  This means you may miss updates from NousResearch/hermes-agent.\n"
-    )
-    if assume_yes or (input_fn is None and not (sys.stdin.isatty() and sys.stdout.isatty())):
-        print(f"  Skipping upstream setup (non-interactive run).\n  Add it later with: {_UPSTREAM_ADD_CMD}")
-        return False
-    if input_fn is not None:
-        response = input_fn("Add official repo as 'upstream' remote? [y/N]", "n").strip().lower()
-    else:
-        try:
-            response = input("Add official repo as 'upstream' remote? [Y/n]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt, UnicodeDecodeError):
-            print()
-            response = "n"
-    if response not in {"", "y", "yes"}:
-        print(f"  Skipped. Run '{_UPSTREAM_ADD_CMD}' to add later.")
-        _mark_skip_upstream_prompt()
-        return False
-    print("→ Adding upstream remote...")
-    if not _add_upstream_remote(git_cmd, cwd):
-        print("  ✗ Failed to add upstream remote. Skipping upstream sync.")
-        return False
-    print("  ✓ Added upstream: https://github.com/NousResearch/hermes-agent.git")
-    return True
+    Kept as a stub so the update pipeline's call sites and their tests keep a
+    stable signature. Always returns False (``upstream`` not added).
+    """
+    return False
 
 
 def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path, *, assume_yes: bool = False, input_fn=None) -> bool:
-    """Offer to add ``upstream``, compare origin/main vs upstream/main, ff-pull when strictly behind, then push origin.
+    """Avunel does not sync with upstream Hermes.
 
-    Returns True only when origin/main was actually verified against upstream/main; False when the check never
-    happened, so the caller never reports "up to date" on an origin-only compare. Fetches only upstream/main:
-    a bare fetch drags in thousands of auto-generated branches.
-
-    See #97052.
+    ``avunel update`` tracks ``origin`` only — the Avunel repo itself. There is
+    no upstream remote, no fork-vs-upstream comparison, and no ff-pull from
+    NousResearch. Returns False (nothing was verified against upstream), which
+    is the honest answer: the check never happened.
     """
-    from hermes_cli.update_cmd import _count_commits_between, _has_upstream_remote, _no_prompt_git_kwargs, _should_skip_upstream_prompt
-    from hermes_cli.update_cmd_check import tracking_refspec
-    if not _has_upstream_remote(git_cmd, cwd) and (
-        _should_skip_upstream_prompt() or not _offer_upstream_remote(git_cmd, cwd, assume_yes=assume_yes, input_fn=input_fn)
-    ):
-        return False
-    print("\n→ Fetching upstream...")
-    try:
-        subprocess.run(git_cmd + ["fetch", "upstream", tracking_refspec("upstream", "main"), "--quiet"], cwd=cwd, capture_output=True, check=True, **_no_prompt_git_kwargs())
-    except subprocess.CalledProcessError:
-        print("  ✗ Failed to fetch upstream. Skipping upstream sync.")
-        return False
-    origin_ahead = _count_commits_between(git_cmd, cwd, "upstream/main", "origin/main")
-    upstream_ahead = _count_commits_between(git_cmd, cwd, "origin/main", "upstream/main")
-    if origin_ahead < 0 or upstream_ahead < 0:
-        print("  ✗ Could not compare branches. Skipping upstream sync.")
-        return False
-    if origin_ahead > 0:
-        print(
-            f"\nℹ Your fork has {origin_ahead} commit(s) not on upstream.\n"
-            "  Skipping upstream sync to preserve your changes.\n"
-            "  If you want to merge upstream changes, run:\n    git pull upstream main"
-        )
-        return True
-    if upstream_ahead == 0:
-        print("  ✓ Fork is up to date with upstream")
-        return True
-    print(f"\n→ Fork is {upstream_ahead} commit(s) behind upstream\n→ Pulling from upstream...")
-    try:
-        subprocess.run(git_cmd + ["pull", "--ff-only", "upstream", "main"], cwd=cwd, check=True, **_no_prompt_git_kwargs())
-    except subprocess.CalledProcessError:
-        print("  ✗ Failed to pull from upstream. You may need to resolve conflicts manually.")
-        return False
-    print("  ✓ Updated from upstream\n→ Syncing fork...")
-    if _sync_fork_with_upstream(git_cmd, cwd):
-        print("  ✓ Fork synced with upstream")
-    else:
-        print(
-            "  ℹ Got updates from upstream but couldn't push to fork (no write access?)\n"
-            "    Your local repo is updated, but your fork on GitHub may be behind."
-        )
-    return True
+    return False
 
 
 def _has_http_code(stderr: str, *codes: str) -> bool:
