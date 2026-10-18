@@ -85,7 +85,11 @@ test('AVUNEL_HOME is canonical and a lone legacy ~/.hermes install is reused', (
   const home: string = '/home/test'
 
   assert.equal(
-    resolveDesktopHermesHome({ home, env: { AVUNEL_HOME: '/canonical/avunel', HERMES_HOME: '/legacy/hermes' }, platform: 'linux' }),
+    resolveDesktopHermesHome({
+      home,
+      env: { AVUNEL_HOME: '/canonical/avunel', HERMES_HOME: '/legacy/hermes' },
+      platform: 'linux'
+    }),
     '/canonical/avunel'
   )
   // No Avunel home on disk but a legacy one -> reuse the legacy install.
