@@ -21,15 +21,16 @@ Reviewing a skill PR: check the target directory — heavy-dep or niche skills g
 stored under `skills.config.<key>`, prompted during setup, injected at load). Top-level `tags:` /
 `category:` are accepted and mirrored from `metadata.hermes.*` by the loader.
 
-## Authoring standards (HARDLINE — enforced by `tests/skills/test_authoring_standards.py`)
+## Authoring standards (Avunel HARDLINE — enforced by `tests/skills/test_authoring_standards.py`)
 
-Every new or modernised skill — bundled, optional, or contributed — meets all of these before merge:
+Every new or modernised skill — bundled, optional, or personal — meets all of these before merge.
+These are **Iki's standards for Avunel**, not inherited NousResearch policy:
 
 1. **`description` ≤ 60 chars, one sentence, ends with a period.** Long descriptions bloat listings
    and dilute attention when many skills load. State the capability, not the implementation; no
    marketing words ("powerful", "comprehensive", "seamless", "advanced"); don't repeat the name.
    Check: `len(re.search(r'^description: (.*)$', text, re.M).group(1)) <= 60`.
-2. **Prose references native Hermes tools or the MCP servers the skill expects, in backticks**
+2. **Prose references native Avunel tools or the MCP servers the skill expects, in backticks**
    (`terminal`, `web_extract`, `read_file`, `patch`, `search_files`, `vision_analyze`,
    `browser_navigate`, `delegate_task`). Never name shell utilities the agent has wrapped: `grep` →
    `search_files`, `cat`/`head`/`tail` → `read_file`, `sed`/`awk` → `patch`, `find`/`ls` →
@@ -41,9 +42,8 @@ Every new or modernised skill — bundled, optional, or contributed — meets al
    bash heredocs, `osascript`, `apt`, `systemctl`) require a platform declaration. Fix cross-platform
    first (`tempfile.gettempdir`, `pathlib.Path`, `psutil.pid_exists`, Python filtering instead of
    `grep`); gate narrower only when the dependency is genuinely platform-bound.
-4. **`author` credits the human first.** External contributor's real name + GitHub handle first,
-   "Hermes Agent" second. A commit authored as "Hermes Agent" (they drafted with Hermes) is replaced
-   with the human's name — credit the human, not the tool.
+4. **`author` credits the human first.** Iki's real name + handle first; the agent second. A commit
+   authored only by the agent is replaced with Iki's name — credit the human, not the tool.
 5. **Modern section order:** `# <Skill> Skill`, 2–3 sentence intro (what it does and doesn't),
    `## When to Use`, `## Prerequisites`, `## How to Run`, `## Quick Reference`, `## Procedure`,
    `## Pitfalls`, `## Verification`. ~200 lines for a complex skill, ~100 simple. Cut intro fluff,
@@ -56,8 +56,8 @@ Every new or modernised skill — bundled, optional, or contributed — meets al
    usually stale; edits outside the skill's own block are dropped during salvage.
 
 No `offset`/`limit` pagination on skill-loading tools — the agent must read a skill fully (root).
-The salvage/modernisation checklist for external skill PRs is `references/new-skill-pr-salvage.md`
-in the `hermes-agent-dev` skill.
+For the maintenance workflow (paths, brand, launchers), load the `avunel-skill-update` skill;
+for discovery, load `avunel-skill-lookup`.
 
 ## Curator (skill lifecycle)
 
