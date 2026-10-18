@@ -1,51 +1,33 @@
 ---
-title: "Hermes Agent Skill Authoring — Author in-repo SKILL.md files: frontmatter and structure"
-sidebar_label: "Hermes Agent Skill Authoring"
-description: "Author in-repo SKILL.md files: frontmatter and structure"
+name: avunel-agent-skill-authoring
+description: "Author in-repo SKILL.md files: frontmatter and structure."
+version: 2.0.0
+author: Iki (mhmdrzkyystiawnn), Hermes Agent
+license: MIT
+platforms: [linux, macos, windows]
+metadata:
+  hermes:
+    tags: [skills, authoring, hermes-agent, conventions, skill-md]
+    related_skills: [requesting-code-review]
 ---
 
-{/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
-
-# Hermes Agent Skill Authoring
-
-Author in-repo SKILL.md files: frontmatter and structure.
-
-## Skill metadata
-
-| | |
-|---|---|
-| Source | Bundled (installed by default) |
-| Path | `skills/software-development/hermes-agent-skill-authoring` |
-| Version | `2.0.0` |
-| Author | Hermes Agent |
-| License | MIT |
-| Platforms | linux, macos, windows |
-| Tags | `skills`, `authoring`, `hermes-agent`, `conventions`, `skill-md` |
-| Related skills | [`requesting-code-review`](../../bundled/software-development/software-development-requesting-code-review.md) |
-
-## Reference: full SKILL.md
-
-:::info
-The following is the complete skill definition that Hermes loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
-:::
-
-# Authoring Hermes-Agent Skills (in-repo)
+# Authoring Avunel Skills (in-repo)
 
 ## Overview
 
 There are two places a SKILL.md can live:
 
-1. **User-local:** `~/.hermes/skills/<maybe-category>/<name>/SKILL.md` — personal, not shared. Created via `skill_manage(action='create')`.
-2. **In-repo (this skill is about this case):** `skills/<category>/<name>/SKILL.md` or `optional-skills/<category>/<name>/SKILL.md` inside the hermes-agent repo — committed, shipped with the package. Use `write_file` + `git add`. `skill_manage(action='create')` does NOT target this tree.
+1. **User-local:** `~/.avunel/skills/<maybe-category>/<name>/SKILL.md` — personal, not shared. Created via `skill_manage(action='create')`.
+2. **In-repo (this skill is about this case):** `skills/<category>/<name>/SKILL.md` or `optional-skills/<category>/<name>/SKILL.md` inside the Avunel repo — committed, shipped with the package. Use `write_file` + `git add`. `skill_manage(action='create')` does NOT target this tree.
 
 In-repo skills must meet the repo's **hardline authoring standards** (see AGENTS.md, "Skill authoring standards (HARDLINE)" — that section is the source of truth; this skill is the operational walkthrough). Reviewers reject PRs that violate them, so meeting them up front is cheaper than a salvage pass later.
 
 ## When to Use
 
 - User asks you to add a skill "in this branch / repo / commit"
-- You're committing a reusable workflow that should ship with hermes-agent
+- You're committing a reusable workflow that should ship with the Avunel repo
 - You're editing an existing skill under `skills/` or `optional-skills/` (use `patch` for small edits, `write_file` for rewrites; `skill_manage` still works for patch on in-repo skills, but not for `create`)
-- Don't use for: personal skills in `~/.hermes/skills/` (just use `skill_manage`)
+- Don't use for: personal skills in `~/.avunel/skills/` (just use `skill_manage`)
 
 ## Decide the Tier First: Bundled vs Optional
 
@@ -99,13 +81,13 @@ Bad: `Use when a user asks to monitor named competitors or companies for product
 
 ### `author` rules
 
-- Credit the **human first**, then "Hermes Agent" as secondary collaborator: `Ben Barclay (benbarclay), Hermes Agent`.
-- Never `author: Hermes Agent` alone for contributed skills — credit the human, not the tool, even (especially) when an agent drafted the text.
-- Maintainer-authored skills: `Teknium (teknium1), Hermes Agent`.
+- Credit the **human first**, then the agent as secondary collaborator: `Iki (mhmdrzkyystiawnn), Hermes Agent`.
+- Never `author: Hermes Agent` alone for a skill — credit the human, not the tool, even (especially) when an agent drafted the text.
+- Template for Iki's own skills: `Iki (mhmdrzkyystiawnn), Hermes Agent`.
 
 ### `related_skills` rules
 
-- Every entry must resolve to an existing **in-repo** skill in the same tree state as your PR. Do not reference skills that were only planned, live in another PR, or exist only in `~/.hermes/skills/`.
+- Every entry must resolve to an existing **in-repo** skill in the same tree state as your PR. Do not reference skills that were only planned, live in another PR, or exist only in `~/.avunel/skills/`.
 - Verify each entry: `search_files(pattern='<name>', target='files', path='skills')` (and `optional-skills/`).
 
 ## Platform Gating: audit, don't trust
@@ -114,7 +96,7 @@ Bad: `Use when a user asks to monitor named competitors or companies for product
 
 | Skill uses only… | `platforms:` |
 |---|---|
-| Hermes tools + stdlib Python + cross-platform CLIs | `[linux, macos, windows]` |
+| Avunel tools + stdlib Python + cross-platform CLIs | `[linux, macos, windows]` |
 | bash pipelines, `grep`/`awk`/`sed` chains, heredocs | `[linux, macos]` |
 | `osascript`, `defaults`, `pmset` | `[macos]` |
 | `apt`/`systemctl`/`/proc` | `[linux]` |
@@ -145,9 +127,9 @@ POSIX-only signals to search for in `scripts/`: `fcntl`, `termios`, `pty`, `os.f
 
 Not every section applies to every skill (a pure-procedure task skill may have no Quick Reference), but When to Use + actionable body + Pitfalls + Verification are the minimum. Cut marketing intros, "Setup Check" no-ops, and re-explanations of env vars already in Prerequisites.
 
-### Reference Hermes tools, not raw shell
+### Reference Avunel tools, not raw shell
 
-When the skill needs a capability, name the proper Hermes tool in backticks: `terminal`, `read_file`, `write_file`, `patch`, `search_files`, `web_search`, `web_extract`, `browser_navigate`, `vision_analyze`, `delegate_task`, `cronjob`. Do NOT name shell utilities the agent already has wrapped (`grep` → `search_files`, `cat` → `read_file`, `sed`/`awk` → `patch`, `find`/`ls` → `search_files target='files'`). A CLI-wrapper skill should frame invocations as `terminal(command="{tool} ...", timeout=...)` — bare shell prose ("run `foo --version`") is a review-blocking non-conformance. If the skill depends on an MCP server, name it and document setup in Prerequisites.
+When the skill needs a capability, name the proper Avunel tool in backticks: `terminal`, `read_file`, `write_file`, `patch`, `search_files`, `web_search`, `web_extract`, `browser_navigate`, `vision_analyze`, `delegate_task`, `cronjob`. Do NOT name shell utilities the agent already has wrapped (`grep` → `search_files`, `cat` → `read_file`, `sed`/`awk` → `patch`, `find`/`ls` → `search_files target='files'`). A CLI-wrapper skill should frame invocations as `terminal(command="{tool} ...", timeout=...)` — bare shell prose ("run `foo --version`") is a review-blocking non-conformance. If the skill depends on an MCP server, name it and document setup in Prerequisites.
 
 ### Never use machine-local paths
 
@@ -203,9 +185,9 @@ A skill exists to make the agent's process more predictable — the agent reliab
 
 ## Common Pitfalls
 
-1. **Using `skill_manage(action='create')` for an in-repo skill.** It writes to `~/.hermes/skills/`, not the repo tree. Use `write_file`.
+1. **Using `skill_manage(action='create')` for an in-repo skill.** It writes to `~/.avunel/skills/`, not the repo tree. Use `write_file`.
 2. **Trusting the validator's limits as the standard.** The validator allows 1024-char descriptions; review rejects anything over 60. The validator doesn't check `platforms:`, author format, tests, or docs — review does.
-3. **`author: Hermes Agent` on a contributed skill.** Credit the human first.
+3. **`author: Hermes Agent` on a skill.** Credit the human first.
 4. **Leading whitespace before `---`.** Validation fails on any leading blank line or BOM.
 5. **Description too generic or trigger buried past char 57.**
 6. **`related_skills` pointing at skills that don't exist in-repo** (user-local, planned, or in a sibling PR).
@@ -224,7 +206,7 @@ A skill exists to make the agent's process more predictable — the agent reliab
 - [ ] `author` credits the human contributor first
 - [ ] `platforms:` audited against actual prose/scripts, not copied from a sibling
 - [ ] Every `related_skills` entry resolves in-repo
-- [ ] Body follows the modern section order; commands framed through Hermes tools
+- [ ] Body follows the modern section order; commands framed through Avunel tools
 - [ ] No machine-local paths anywhere in the file
 - [ ] Each ordered step has a checkable completion criterion
 - [ ] Tests at `tests/skills/test_<skill>_skill.py` pass under `scripts/run_tests.sh`

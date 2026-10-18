@@ -1,46 +1,61 @@
-# Hermes Agent - Development Guide
+# Avunel — Development Guide
 
-Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+Instructions for AI coding assistants and developers working on the **Avunel** codebase.
+
 This root file holds only what applies everywhere. Each area has its own `AGENTS.md` (aim for
 ~8k chars; `agent/subdirectory_hints.py` delivers up to 32k and truncates head/tail with a warning
 past that); see the **routing table** at the end and read the area file before editing in that area.
 
 **Never give up on the right solution.**
 
-## What Hermes Is
+---
 
-Hermes is a personal AI agent that runs the same agent core across a CLI, a messaging
+## What Avunel Is
+
+Avunel is a **personal AI agent** that runs the same agent core across a CLI, a messaging
 gateway (Telegram, Discord, Slack, ~20 platforms), a TUI, and an Electron desktop app. It
 learns across sessions (memory + skills), delegates to subagents, runs scheduled jobs, and
 drives a real terminal and browser. It is extended primarily through **plugins and skills**,
 not by growing the core.
 
-Two invariants shape almost every design decision and are the lens for reviewing any change:
+**Avunel is a personal fork of Hermes Agent (Nous Research).** Avunel takes the **framework**
+from Hermes — the runtime (`hermes_agent` binary, `hermes_cli` modules, `hermes_bootstrap`,
+PM-managed venv), the plugin system, the skill system, the state.db layout — and **replaces
+the rules with Iki's own.** Avunel does **not** follow Hermes upstream updates. Avunel does
+**not** need updates from Hermes. When in doubt about a convention, **ask Iki** — do not
+default to "what Hermes does".
 
-- **Per-conversation prompt caching is sacred.** A long-lived conversation reuses a cached
-  prefix every turn. Anything that mutates past context, swaps toolsets, reloads memories, or
-  rebuilds the system prompt mid-conversation invalidates that cache and multiplies the user's
-  cost. We do not do it; the ONE exception is context compression. Slash commands that mutate
-  system-prompt state (skills, tools, memory) must be **cache-aware**: default to deferred
-  invalidation (takes effect next session) with an opt-in `--now` flag (`/skills install --now`
-  is the canonical pattern).
-- **The core is a narrow waist; capability lives at the edges.** Every model tool is sent on
-  every API call, so the bar for a new *core* tool is high. New capability should arrive as a
-  CLI command + skill, a service-gated tool, or a plugin — not as core surface.
+The runtime install is `~/.avunel/hermes-agent/` (the folder name `hermes-agent` stays
+intact: it is the binary install identifier, not a brand statement). The data home is
+`~/.avunel/`. The fork repo is `git@github.com:mhmdrzkyystiawnn/avunel-agent.git`.
 
-## Contribution Rubric — What We Want / What We Don't
+Two invariants shape almost every design decision and are the lens for reviewing any change.
+These are **Avunel-specific** — they are not the NousResearch Hermes invariants.
 
-The project's intent layer. It serves humans aiming a contribution AND the automated triage
-sweeper, which may only close on `implemented_on_main`, `cannot_reproduce`, or `incoherent`.
-Taste-based "out of scope" closes are a human maintainer's call; the sweeper's job is to
-recognize design intent and *avoid wrongly closing a legitimate contribution*.
+- **Event log is the source of truth.** `state.db` is a projection. Every state mutation
+  flows through `emit()`; every read is a re-derivation from the event log. This is set
+  out in `planning/avunel-addendum-v5-final.md` (K3 = event log replaces state.db as
+  source of truth; K4 = `events.db` lives in a separate file from `state.db`). It changes
+  the design surface area: no FTS5-corruption machinery to keep working (transcript_repair,
+  session_recovery, session_lost_and_found, hermes_state_repair — all go away in favour of
+  append-only event log + projection rebuild), no big table to back up, no schema-migration
+  story to maintain. The price is write-amplification (1 INSERT into events per mutation
+  plus 1 update on the projection), paid for in the form of a recoverable, auditable,
+  branchable history.
+- **One install, three launchers, one source of truth.** The binary install at
+  `~/.avunel/hermes-agent/` is what `avunel` runs. The clean transport repo at
+  `~/projects/avunel-agent-clean/` (with its data home `~/avunel-daily-data/`) is what
+  `avunel-daily` runs. The sandbox at `~/avunel-events-data/` (when fase -1 lands) is what
+  `avunel-events-test` runs. The fork's `main` branch is the runtime install; `development`
+  is the clean repo working tree; `ci/repair-failing-tests` is the CI branch. Push only from
+  the clean repo. Test the runtime behaviour from each launcher before trusting a fix.
 
-Read the balance right: Hermes ships a **lot**. Most merges are bug fixes to reported
-behavior, and the product surface (platforms, providers, models, desktop/TUI features)
-expands aggressively on purpose. The restraint below targets the **core agent + model tool
-schema**, the one place where every addition is paid for on every API call. "Smallest
-footprint" governs *how a capability is wired into the core*, not whether the product may
-grow: expansive at the edges, conservative at the waist.
+## What We Want / What We Don't
+
+The project's intent layer. Read the balance right: Avunel ships a **lot** of capability at
+the edges, and the rest of this document is about which of that capability is paid for at
+the core. "Smallest footprint" governs *how a capability is wired into the core*, not whether
+the product may grow: expansive at the edges, conservative at the core.
 
 ### What we want
 
@@ -48,500 +63,339 @@ grow: expansive at the edges, conservative at the waist.
   where it manifests, and fix the whole bug class — sibling call paths included.
 - **Expand reach at the edges.** New adapters, channels, providers, models, desktop/TUI/
   dashboard features land routinely, including large ones — as long as they integrate with
-  the existing setup/config UX (`hermes tools`, `hermes setup`, auto-install) rather than
+  the existing setup/config UX (`avunel tools`, `avunel setup`, auto-install) rather than
   bolting on a raw env var.
 - **Refactor god-files into clean modules.** Huge mechanical `+N/-N` extraction PRs are
   wanted work. "Every line traces to the request" applies to *feature* PRs; a declared
   refactor's request IS the extraction.
 - **Keep the core narrow.** Prefer, in order: extend existing code → CLI command + skill →
   service-gated tool (`check_fn`) → plugin → MCP server in the catalog → new core tool (last
-  resort). See the Footprint Ladder.
+  resort).
 - **Extend, don't duplicate.** Check whether existing infrastructure covers the use case
-  before adding a module/manager/hook. When 3+ open PRs integrate the same *category*
-  (memory backends, providers, notifiers), design an ABC + orchestrator, wrap the existing
-  built-in as the first provider, and turn the competing PRs into plugins against it.
-- **Behavior contracts over snapshots.** Tests assert how two pieces of data relate, never
-  freeze a current value (see Testing).
-- **E2E validation, not just green unit mocks.** Anything touching resolution chains, config
-  propagation, security boundaries, remote backends, or file/network I/O must exercise the
-  real path with real imports against a temp `HERMES_HOME` — two of them (A→B→A) when the
-  change touches profile scope. Mocks hide integration bugs.
-- **Cache-, alternation-, and invariant-safe.** Preserve prompt caching, strict role
-  alternation (never two same-role messages in a row; never a synthetic user message injected
-  mid-loop), and a system prompt byte-stable for the life of a conversation.
-- **Contributor credit preserved.** Salvage external work by cherry-picking (rebase-merge) so
-  authorship survives; build on top rather than reimplementing.
+  before adding a module/manager/hook. When 3+ open PRs integrate the same *category* of
+  feature into the core, the right answer is to extract a plugin shape, not to ship the
+  third binding.
+- **Design for replay and rewind.** The event log is the source of truth precisely so that
+  any past state is reproducible from the log. New state mutations should make the event
+  easy to log (a single `emit()` call) and the projection update easy to re-derive
+  (idempotent). Branching and undo follow the same line of reasoning.
+- **Test the real outcome.** "Tests pass" is not "behaviour is correct." A test that
+  asserts the wrong value, or that runs against the wrong fixture, passes. For DB issues,
+  probe the live state. For visual / output issues, inspect the actual rendered result.
+  For runtime behaviour, exercise the same code path the user would.
 
-### What we don't want (rejected even when well-built)
+### What we don't want
 
-- **Speculative infrastructure.** Hooks/callbacks/extension points with no concrete consumer.
-  Adding a hook is easy; removing one after plugins depend on it is hard. A hook with a real,
-  stated use case is NOT speculative even if the consumer ships separately.
-- **New `HERMES_*` env vars for non-secret config.** `.env` is for secrets only. Behavioral
-  settings (timeouts, thresholds, flags, display prefs) go in `config.yaml`; bridge to an
-  internal env var in code if the mechanism needs one. Reject "set X in your .env" docs
-  unless X is a credential.
-- **A new core tool when terminal + file (or a skill) already do the job.** If the only
-  barrier is file visibility on a remote backend, fix the mount, not the toolset.
-- **Lazy-reading escape hatches on instructional tools.** No `offset`/`limit` pagination on
-  tools that load content the agent must read fully (skills, prompts, playbooks) — models
-  read page 1 and skip the rest.
-- **"Fixes" that destroy the feature they secure.** Read the original intent
-  (`git log -p -S`) before restricting behavior; find a fix that preserves the feature.
-- **Outbound telemetry / usage attribution without opt-in gating.** No analytics,
-  third-party identifier tagging, or attribution tags until a generic user-facing opt-in
-  (config gate + setup prompt + `hermes tools` toggle) exists. Park behind a label.
-- **Change-detector tests, cache-breaking mid-conversation, dead code wired in without E2E
-  proof, plugins that touch core files.** Plugins work within the ABCs/hooks we provide; if
-  one needs more, widen the generic plugin surface, never special-case it in core.
-- **Third-party products integrated into the core tree.** Observability backends, vendor
-  SaaS connectors, analytics dashboards, and other "someone else's product" plugins do NOT
-  land under `plugins/` — every one becomes our burden against a fast-moving core for a
-  backend we don't own. Ship as a **standalone plugin repo** (`~/.hermes/plugins/` or pip
-  entry point), promoted in the Nous Research Discord `#plugins-skills-and-skins`. This is a
-  coupling decision, not a quality bar; such PRs are closed with a pointer to publish.
+- **Mocking the data layer in a way that does not match the live schema.** `state.db` schema
+  is not what you guess from the type stubs. `sessions.id` (not `session_id`),
+  `messages.session_id`. Inspect with `PRAGMA table_info(<table>)` before writing a query.
+- **Adding a new core tool when a CLI command + skill would do.** Every model tool is sent
+  on every API call. The bar for a new *core* tool is high.
+- **Touching memory, skills, or system-prompt state mid-conversation without going through
+  the cache-aware path.** The prompt cache is a long-lived prefix that survives a
+  conversation; mutating it mid-session invalidates the cache and multiplies cost. Slash
+  commands that touch these layers (skills, memory, tools) default to deferred
+  invalidation (`--now` is the explicit opt-in; `/skills install --now` is the canonical
+  pattern). Compression is the one exception.
+- **Fictional evidence.** "I ran the test" when you did not. "The DB is in this state" when
+  you did not probe. "The user said X" when they did not. Claims must trace to a real
+  command, a real file read, a real probe. When unsure, say so plainly.
+- **Hard-coded values that should be data.** A real bug, a real skin, a real plugin — not
+  a placeholder.
+- **Mid-conversation cache break.** Mutating past context, swapping toolsets, reloading
+  memories, or rebuilding the system prompt mid-conversation invalidates the prompt cache
+  and multiplies the user's cost. Do not do it; compression is the ONE exception.
 
-### Before you call it a bug — verify the premise (and when NOT to close)
+## Contribution Rubric (Avunel-specific)
 
-The most common reason a well-written PR is closed is a **wrong premise** or treating an
-**intentional design as a gap**. These patterns tell a reviewer what to scrutinize and tell
-the sweeper when a PR is NOT safe to close (when in doubt, leave it open for a human):
+These are the rules Iki has set. They are **not** inherited from NousResearch; they are
+explicit choices for Avunel.
 
-- **"Intentional design, not a gap."** Ask whether the isolation IS the design. Profiles are
-  independent islands on purpose: a PR adding live config inheritance from the default
-  profile was closed because coupling profiles is exactly what the design prevents (`--clone`
-  already covers "start from my default"). Read `git log -p -S "<symbol>"` before assuming
-  something is unfinished.
-- **"The premise doesn't hold against how X actually works."** Trace the real runtime before
-  accepting a rationale. Real closes: a rate-limit "re-probe during cooldown" PR (the breaker
-  trips only on a *confirmed-empty* bucket, so re-probing hammers a bucket proven empty); a
-  usage fix whose new branch **never executes** because an earlier guard already popped the
-  state. If you can't point to the exact line where the bug manifests AND show the fix changes
-  that line's behavior, the premise is unverified.
-- **"The absence was deliberate."** Restoring "missing" `__init__.py` files made a test tree
-  importable as a dotted package that shadowed the real plugin and deleted its `register()`
-  at import time. The omission was load-bearing.
-- **"Overreached / resurrected an approach we moved past."** Scope creep beyond the agreed
-  base, or reviving a direction maintainers closed, is rejected even when it works. Offer the
-  rest as a focused follow-up.
+- **One source of truth: the event log.** Every state mutation goes through `emit()`.
+  Direct `INSERT`/`UPDATE` to tables in the conversation domain (sessions, messages,
+  system_prompts, branches, undo) is forbidden outside the projection handler. The runtime
+  guard fails the test if a forbidden write is detected.
+- **Three launchers, three data homes, one source of truth.** `avunel` (daily binary
+  install, `~/.avunel/`), `avunel-daily` (clean transport repo + data home,
+  `~/projects/avunel-agent-clean/` + `~/avunel-daily-data/`), `avunel-events-test` (sandbox
+  for the event log work, `~/avunel-events-data/`, lands at fase -1). Each launcher sets
+  `HERMES_HOME` to its own data home. They never share either path. Push from the clean repo
+  only.
+- **State.db as projection, not source.** Read-only `state.db` consumers stay read-only;
+  the projection is rebuilt from the event log when the schema or schema-version changes.
+  The fork-specific bug is that `_real_platform_state_root` was hardcoded to `~/.hermes`
+  in `hermes_state_guard.py`; it must check both `~/.avunel` (primary) and `~/.hermes`
+  (legacy) so the guard catches subprocess escapes on Avunel hosts.
+- **`hermes update` defaults to fork origin, not NousResearch.** `origin` in the fork repo
+  points to `git@github.com:mhmdrzkyystiawnn/avunel-agent.git`. `hermes update` fetch
+  default = `origin/main`. The NousResearch upstream reference exists in
+  `.github/actions/plugin-validate/action.yml`; that reference is **removed** for Avunel
+  (K6 from the addendum). Diff baseline against NousResearch may be a manual `git fetch
+  upstream` if needed; it is not part of the default flow.
+- **Skill maintenance: Avunel-specific paths, brand, and launchers.** A skill that
+  references `~/.hermes/`, `hermes-dev`, or "Hermes Agent" in display text is partial.
+  `avunel-skill-update` is the maintenance entry point; its procedure classifies every
+  hit into Display text / Runtime paths / Launchers / Identifier (skip) before patching.
+  Skill **folders** are named `avunel-*` (e.g. `avunel-dev-environment`,
+  `avunel-skin-theming`, `avunel-agent-skill-authoring`, `avunel-agent`); the folder name
+  is an identifier and is renamed in lockstep across the catalog, not file-by-file.
+- **Identifier boundary.** Module names (`hermes_cli`, `hermes_state`, `hermes_constants`,
+  `hermes_yaml`, `hermes_agent`), env vars (`HERMES_HOME`, `HERMES_RUNTIME_DIR`,
+  `HERMES_TEST_SLICE`), and the install folder name (`hermes-agent`) stay intact. Renaming
+  them breaks thousands of imports and the app will not boot. The fact that the runtime
+  install is `~/.avunel/hermes-agent/` is intentional. License / credit: `MIT` + `Nous
+  Research` upstream attribution + "the Avunel modifications are mine" — preserved.
+- **Event-log semantics:** `append-only` enforced at the DB level (`BEFORE UPDATE` /
+  `BEFORE DELETE` triggers on the `events` table raise `ABORT`). Branches use `parent_id`
+  (FK to `events.id`), not `parent_session_id`. Undo writes an event
+  (`conversation.undone`) — it does not UPDATE the messages table. Rebase / squash /
+  rewrite happens in a new event chain, not by mutating existing events.
 
-Throughline: **verify the claim AND the intent against the codebase before writing or merging
-a fix.** A reproduction on current `main` plus a line-level account beats a plausible
-rationale. When unsure about intent, asking is cheaper than shipping a fix that fights the
-design.
+## Testing (Avunel-specific)
 
-### Security reports and fixes — follow `SECURITY.md`
+The runtime's test suite is the contract. Adapt it to the actual requirement — do not weaken
+it, do not skip a failing test, do not pass a wrong assertion.
 
-Read `SECURITY.md` before filing an issue or opening a PR with a security angle. It is the
-scope authority; these are the rules that matter at submission time:
+- **Entry point:** `bash scripts/run_tests.sh [path] [args]`. The script honours
+  `HERMES_TEST_SLICE` (0-indexed out of `HERMES_TEST_SLICE_OF`) and `HERMES_TEST_WORKERS`
+  (parallel processes; default 4 to match the 4-core runner). Do not invoke `pytest`
+  directly — that bypasses the slice/timeout logic and may write to `~/.hermes/` by
+  accident. Tests must redirect `HERMES_HOME` to a temp dir; never hardcode `~/.hermes/`
+  in tests. (Avunel tests will, in due course, redirect to `~/.avunel/` — same pattern,
+  updated value.)
+- **One test = one contract.** Tests that are loosely worded or that assert the wrong
+  value will pass and give false confidence. The agent must read the test before trusting
+  it. If the test says "X is a dict" but the contract is "X is a dict with at least these
+  two keys," rewrite the test to assert what matters.
+- **Test that fails before the fix, passes after.** A test that runs only against the
+  patched code proves nothing. `git stash` the fix, run the test, confirm it fails with
+  the bug's symptom; unstash, confirm it passes. The pre-fix failure is the test's
+  evidence that it actually exercises the bug.
+- **For DB issues, probe the live database.** `~/.avunel/state.db` is the real
+  data. Schema files, Prisma models, type stubs, and test fixtures are *approximations*.
+  When they disagree, the live DB wins. `sqlite3 -readonly /home/iki/.avunel/state.db
+  ".schema <table>"` to see what is actually there; `PRAGMA table_info(messages)` to see
+  the columns.
+- **For state recovery, test through the event log.** The state-recovery machinery
+  (transcript_repair, session_recovery, session_lost_and_found, hermes_state_repair) is
+  replaced by event-log replay. Tests for the old recovery paths are deleted; tests for
+  the new replay are added. FTS5 corruption tests are dropped in favour of "rebuild
+  FTS5 from the projection."
+- **CI gate before merge.** A change lands in `ci/repair-failing-tests` first, then
+  moves to `development`, then to `main` after CI is green. CI is green when the full
+  Python suite, the JS/TS suite, and `check:test:ui` are all passing. `check:test:ui` is
+  flaky by design (timer-after-teardown in `apps/desktop/src/store/notifications.ts:344`),
+  so the gate is "stable over the last 3 CI runs," not "single run green."
+- **No fabrication.** A test that "passes" because the assertion is `assertTrue(True)`
+  is a fabrication. A test that passes because the fix changed the test rather than the
+  behaviour is a fabrication. The agent must read the test, read the implementation, read
+  the spec, and confirm that what the test asserts is what the user actually wants.
+- **Change-detector tests are forbidden.** A test that fails whenever data *expected to
+  change* is updated (model catalogs, `_config_version`, enumeration counts, hardcoded
+  model lists) adds no coverage and taxes every routine update. The test reads as a
+  contract between two pieces of data — keep it; reads as a snapshot — delete it.
+- **Tests must not read source code as text.** A test that reads a `.py`/`.ts`/`.tsx`
+  file's text tests the *shape of the source*, not behaviour — banned outright. It
+  passes when the implementation is subtly broken (regex matches a mis-wired call site)
+  and fails on correct refactors. Extract the logic into a pure / DI-testable function
+  and call it.
 
-- **Undisclosed vulnerabilities go private, never public.** If a finding is in scope under
-  `SECURITY.md` §3.1 (isolation escape, unauthorized external-surface access, credential
-  exfiltration, trust-model documentation violation), report it via
-  [GitHub Security Advisories](https://github.com/NousResearch/hermes-agent/security/advisories/new)
-  or security@nousresearch.com. Do not open a public issue or PR for it, and keep
-  reproduction or exploit details out of commit messages, PR bodies, and comments.
-- **Out-of-scope hardening is ordinary public work.** §3.2 items — approval-gate, redaction,
-  or Skills Guard bypasses; prompt injection without a chained §3.1 outcome; consequences of
-  the chosen isolation posture; break-glass settings; third-party skills/plugins — are not
-  vulnerabilities. File them as regular issues/PRs; don't route them through the private
-  channel or describe them as vulnerabilities.
-- **Name the boundary.** A security issue or PR states which §2 trust boundary is crossed,
-  with `path/to/file.py:line` references and a reproduction on current `main`.
-- **Sweeper:** a public issue or PR that discloses an apparent §3.1 vulnerability is never a
-  sweeper close or merge candidate; leave it for a maintainer.
+## Plugin Development (Avunel-specific)
 
-### The Footprint Ladder (new capability decision)
+Avunel plugins live in `~/.avunel/plugins/<name>/` (user-local) or
+`~/projects/avunel-agent-clean/plugins/<name>/` (in-repo). All Avunel plugins are owned by
+Iki; there is no third-party migration story. Convention below replaces the Hermes
+plugin convention.
 
-Choose the highest (least-footprint) rung that correctly solves the problem:
+- **Two plugin kinds: `standalone` (hook-only) and `MemoryProvider`.** A `standalone`
+  plugin is the cheapest way to observe the agent loop; a `MemoryProvider` is the only
+  way to extend the memory subsystem.
+- **For `MemoryProvider`, the 5 s drain budget is sacred.** `MemoryManager.sync_all()`
+  does not call `sync_turn` inline; it submits to a single-worker executor with a 5 s
+  drain budget. Any work slower than 5 s is silently lost. Expensive work goes in
+  `on_session_end` (which runs before the drain, bounded by the CLI exit watchdog) — not
+  in `sync_turn`. The 5 s budget is a core constant, not a tunable.
+- **For `standalone` plugins, `pre_api_request.request_messages` is the truth.** Not
+  `pre_llm_call.conversation_history` (which excludes the current turn's injected context).
+  `messages.api_content` in `state.db` is what was actually sent to the provider. Read
+  these fields when measuring accumulation; do not infer from `conversation_history`.
+- **`avunel plugins enable` is the admission gate** (network needed, runs `pm
+  sync_venv`). A user-dir MemoryProvider does not need the admission gate — set
+  `memory.provider: <name>` in `~/.avunel/config.yaml` and it loads.
+- **No third-party plugin contracts.** Avunel does not support plugin-as-a-product. The
+  NousResearch "ship your plugin as a standalone repo" path is closed for Avunel. Every
+  Avunel plugin is in-tree (under `plugins/` or `~/.avunel/plugins/`) and is owned by
+  Iki. There is no catalogue, no admission-pipeline, no plugin-as-pip-package contract.
+- **No fabricated plugin state.** A plugin that claims to have persisted X must be able
+  to read X back from the same data store in a fresh process. `avunel -z "..."` is a
+  fresh process. If you cannot read the data in a fresh process, the persistence is
+  fictional.
 
-1. **Extend existing code** — a variation of something that exists. Zero new surface.
-2. **CLI command + skill** — config/state/infra expressible as shell commands; the agent runs
-   `hermes <subcommand>` guided by a skill. Default for subscriptions, scheduled tasks,
-   service setup (`hermes webhook`, `hermes cron`, `hermes tools`).
-3. **Service-gated tool (`check_fn`)** — needs structured params/returns AND only appears when
-   a prerequisite is configured (Home Assistant tools, memory-provider tools). This rung gates
-   reachability/opt-in process-wide; a capability that varies per SESSION (who is watching) is
-   a named toolset folded in by the toolset resolver, not a `check_fn` — see "Surface capability
-   is a property of the SESSION" below.
-4. **Plugin** — third-party/niche/user-specific; lives in `~/.hermes/plugins/` or a pip
-   package, discovered at runtime.
-5. **MCP server (in the catalog)** — genuinely a tool but not core-fundamental. Zero permanent
-   core-schema footprint, reusable by any MCP host, reached via the built-in MCP client.
-6. **New core tool** — only when fundamental, broadly useful to nearly every user, and
-   unreachable via terminal + file or an MCP server (terminal, read_file, web_search,
-   browser_navigate).
+## State, FTS5, and Recovery
 
-### Surface capability is a property of the SESSION, never of the process env
+The Hermes-agent state-recovery machinery (transcript_repair, session_recovery,
+session_lost_and_found, hermes_state_repair, FTS5 corruption handling, JSONL replay at
+`gateway/shutdown_flush.py`) exists because `state.db` is mutable and can be corrupted or
+lose sessions. **Avunel replaces that machinery with event-log replay.**
 
-A tool that works only because of *who is on the other end* (desktop panes, in-app browser,
-message reactions, Projects) must resolve availability from the **session's own source**, not
-from an env var on the backend. Client and backend are separate machines: the desktop app may
-drive a locally spawned backend, one over SSH, one behind URL + token, or Hermes Cloud, and
-only the first two carry `HERMES_DESKTOP=1`. An env-keyed gate is a silent no-op on the other
-topologies — the tool is stripped from the schema while the platform hint tells the model it
-is "inside the Hermes desktop app". The pattern:
+- **Recovery = replay the event log.** No more `transcript_repair` patching active=0 in
+  `messages`; no more `session_lost_and_found` stitching session ids back together. If
+  the event log is intact, the projection can be rebuilt. If the projection is stale,
+  rebuild it.
+- **Snapshot = event chain from a specific event id + filesystem snapshot.** Branch
+  from event N, restore the snapshot at event N, replay forward. The "right solution" is
+  the one that always works, not the one that patches the failure.
+- **FTS5 stays in the projection.** The 11 triggers in `messages` go away; FTS5
+  becomes a virtual table rebuilt from the projection. FTS5 corruption machinery goes
+  away; if the FTS5 index is stale, rebuild it from the projection.
+- **JSONL journal at `gateway/shutdown_flush.py`** contains events, not messages.
+  Pending events are appended before shutdown, replayed on start.
+- **Failure mode: the event log itself can be lost or corrupted.** That is a real
+  failure mode for an append-only store, just as it was for `state.db`. The recovery
+  story in that case is: restore the event log from a snapshot (daily backup of
+  `events.db` is the contract — every `avunel update` takes one), then rebuild the
+  projection. There is no "transcript_repair"-style patching of the event log.
 
-- **The toolset is the surface gate.** Keep such tools off `_HERMES_CORE_TOOLS` and in a named
-  toolset (`desktop_ui`, `project`); the GUI gateway's `_load_enabled_toolsets(platform)`
-  folds it in when the session's platform says GUI. One resolver, every topology.
-- **`check_fn` answers reachability or opt-in, not surface.** "Is the bridge wired?" — fine.
-  "Was I spawned by Electron?" — not. `check_fn` results are TTL-cached process-wide
-  (`tools/registry.py`); a per-session answer does not belong there.
-- **Ask which identity you mean.** `HERMES_DESKTOP=1` legitimately means "this backend was
-  spawned by the app" (cron ticker, web-dist handling). It does NOT mean "a GUI is watching";
-  the embedded terminal pane (`hermes --tui` against that backend) is the counterexample.
+## Skin Theming
 
-Test: if the capability still makes sense with the client on another machine, it is
-session-scoped. Assert the GUI session gets the tool **with the env var absent**.
+The skin engine (`hermes_cli/skin_engine.py`, `display.skin` in config) is the single
+source of palette truth for every surface. Avunel uses this engine directly; the
+conventions below are Avunel-specific adaptations.
 
-## Development Environment
+- **Two kinds of skin.** Built-in (in `hermes_cli/skin_engine.py::_BUILTIN_SKINS`) and
+  user-local (`~/.avunel/skins/<name>.yaml`). User-local wins for the same name. The
+  Avunel default is `default` (built-in); `~/.avunel/skins/avunel.yaml` is the personal
+  override when present.
+- **Three layers of "the word" — Hermes / Avunel.** Display text (rename) is what the
+  user reads (banner, `--version`, `--help`, persona prompt, locale `en.yaml`,
+  welcome/goodbye). Internal identifiers (`hermes_cli`, `hermes_state`, `HERMES_HOME`,
+  install folder name) NEVER rename. License / credit (`MIT`, `Nous Research`, upstream
+  repo URLs) stays. `display-text-rebrand.md` (in the `avunel-skin-theming` skill) is
+  the canonical reference; read it before editing any surface.
+- **The product-NAME rename is display text only.** The word "Hermes" in
+  `hermes_constants.PRODUCT_NAME` was changed to "Avunel" in the fork; the env var
+  `HERMES_HOME`, the install folder `hermes-agent`, the module name `hermes_cli`, and
+  the URL `github.com/NousResearch/hermes-agent` stay. Display sites read
+  `PRODUCT_NAME`; identifiers stay.
+- **A renamed fork also has its own version.** `AVUNEL_VERSION: str = "0.1.0"` in
+  `hermes_constants.py`, reported separately from the upstream base. Provenance
+  (upstream sha, local sha, carried commit count, dirty flag) is computed from live git
+  (`_git_upstream_base` in `hermes_cli/version_info.py`) — never hardcoded.
+- **Banner reading:** `--version` prints the Avunel install directory, version block, and
+  the live git provenance. The banner patch is in `hermes_cli/banner.py`; the version
+  printer is in `hermes_cli/version_info.py`. Both share `_git_upstream_base` so they
+  cannot disagree.
+- **The terminal cannot render arbitrary fonts.** Express the brand through spacing, a
+  monogram mark, and monospace. Deliver a real display font only to graphical surfaces
+  via the skin's `customCSS` field (injected as a `<style>` tag on desktop / web), scoped
+  to a selector (e.g. `.wordmark`), never to conversation / code.
 
-```bash
-source ./activate   # provisions/syncs PM tools + dependencies, then activates
-```
-Select an isolated development `HERMES_HOME` and `HERMES_RUNTIME_DIR` first;
-see `website/docs/reference/package-management.md#developer-workflow`.
-fish: `source ./activate.fish`; PowerShell: `. .\activate.ps1`. `deactivate` restores the prior
-environment. Non-interactive callers run under `scripts/run-in-hermes-env CMD...` instead of sourcing.
-For tests, use the independent test environment in `CONTRIBUTING.md` (or Nix);
-PM activation's `PYTHONPATH` does not survive the test runner's environment scrub.
-`scripts/run_tests.sh` probes `.venv`, then `venv`, then `$HOME/.hermes/hermes-agent/venv`
-(worktrees sharing the main checkout's venv).
+## CI
 
-## Project Structure
+The fork's CI is in `.github/workflows/tests.yml`. The user-local CI behaviour is run
+manually with `avunel update` (after a manual commit on the fork) — Avunel does not
+auto-update.
 
-Counts shift constantly; the filesystem is canonical. Load-bearing entry points:
+- **Branch model:** `ci/repair-failing-tests` (work in progress), `development` (clean
+  repo working tree, ready to push), `main` (runtime install, mirror to `~/.avunel/
+  hermes-agent/` via `avunel update`).
+- **Gate:** CI is green when the full Python suite, JS/TS suite, and `check:test:ui`
+  are all passing — for 3 consecutive runs. `check:test:ui` is flaky (timer-after-
+  teardown in `apps/desktop/src/store/notifications.ts:344`); a single green run is not
+  a green gate.
+- **Upstream reference removed.** The NousResearch upstream reference in
+  `.github/actions/plugin-validate/action.yml` is removed for Avunel (K6 from the
+  addendum). Diff baseline against NousResearch, if needed, is a manual `git fetch
+  upstream` — it is not part of the default CI flow.
+- **Workflow contract:** the Avunel CI workflow file is the runtime. If you change
+  the workflow, also change the runtime install (`~/.avunel/hermes-agent/`) — both
+  must agree on what "green" means.
+- **CI-only Python requirements:** `==exact`. A bare `>=X.Y.Z` is rejected by CI and
+  reviewers.
 
-```
-hermes-agent/
-├── run_agent.py          # AIAgent facade; the turn loop lives in agent/turn_*.py
-├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
-├── toolsets.py           # TOOLSETS dict, _HERMES_CORE_TOOLS
-├── cli.py                # HermesCLI (REPL, slash dispatch) + hermes_cli/cli_*_mixin.py
-├── hermes_state.py       # SessionDB facade; hermes_state_*.py siblings
-├── hermes_constants.py   # get_hermes_home(), display_hermes_home() — profile-aware paths
-├── hermes_logging.py     # agent.log / errors.log / gateway.log (profile-aware)
-├── batch_runner.py       # Parallel batch processing
-├── agent/                # turn_*.py loop phases, providers, memory, compression, prompt builder
-├── hermes_cli/           # CLI subcommands, setup, config, plugins loader, skins, updater
-│   └── web_routers/      # Dashboard FastAPI routers (one per surface); web_server.py mounts them
-├── tools/                # Tool implementations, auto-discovered via tools/registry.py
-│   └── environments/     # Terminal backends (local, docker, ssh, modal, daytona, singularity)
-├── gateway/              # run.py facade + run_*.py phases + session*.py + platforms/
-│   ├── platforms/        # One adapter per platform; see platforms/ADDING_A_PLATFORM.md
-│   └── builtin_hooks/    # Always-registered gateway hooks (extension point; none shipped)
-├── plugins/              # memory/, context_engine/, model-providers/, kanban/, image_gen/, ...
-├── skills/               # Built-in skills (by category)   optional-skills/: shipped, not active
-├── ui-tui/               # Ink (React) terminal UI — `hermes --tui`
-├── tui_gateway/          # Python JSON-RPC backend for TUI + Desktop — server.py + methods_*.py
-├── apps/desktop/         # Electron desktop app (+ apps/shared JSON-RPC client)   web/: dashboard SPA
-├── acp_adapter/          # ACP server (VS Code / Zed / JetBrains)
-├── cron/                 # jobs.py + scheduler.py (+ scheduler_*.py)
-├── evals/                # Offline benchmarks (codebase_navigability/, compaction/, ...)
-├── scripts/              # run_tests.sh, release.py, ci/
-├── website/              # Docusaurus docs (developer-guide/ holds the long-form area docs)
-└── tests/                # Pytest suite (~39k tests / ~3.7k files, Sep 2026)
-```
+## Hardline Conventions (Avunel)
 
-**User state:** `~/.hermes/config.yaml` (settings), `~/.hermes/.env` (secrets only),
-`~/.hermes/logs/` (`agent.log` INFO+, `errors.log` WARNING+, `gateway.log`); all
-profile-aware via `get_hermes_home()`. Browse logs with `hermes logs [--follow] [--level] [--session]`.
+These are the rules that, when broken, are PR-blocking. They are **Avunel-specific**; do
+not invoke NousResearch convention as a counter-argument.
 
-**Dependency chain:** `tools/registry.py` (no deps) ← `tools/*.py` (register at import) ←
-`model_tools.py` (discovery) ← `run_agent.py`, `cli.py`, `batch_runner.py`, `environments/`.
+### Skill authoring (K7)
 
-### Facade + siblings layout (Sep 2026 decomposition)
+- `name`: lowercase, hyphens, ≤ 64 chars.
+- `description`: ≤ 60 chars (hardline; the validator's 1024 is not the standard), one
+  sentence, ends with a period, no marketing words, no colon unless quoted.
+- `name` field is unique across the catalog at any given moment. Rename via the
+  catalog (move to a new folder), not via patch.
+- `metadata.hermes.tags` and `metadata.hermes.related_skills` must resolve. Related
+  skills must exist in the catalog; tags must be lowercase, hyphenated, descriptive.
+- The skill body is capped at 100,000 chars. Aim for ~150 lines for a typical skill;
+  longer material goes into `references/`, `templates/`, or `scripts/`.
+- Frontmatter begins with `---` on the first byte (no leading blank line), closes
+  with `\n---\n`, then a non-empty body.
+- Skill **folder names** are Avunel-style: `avunel-*`. Renaming a folder is a lockstep
+  operation across the catalog (related_skills references, prose references), not a
+  file-by-file change. Backup to `~/.avunel/.skill-backup-<YYYYMMDD>/` first.
 
-Every former god file is a **facade** (public entry points + the names other packages import)
-plus **siblings** `<stem>_<topic>.py` in the same directory, each owning one topic. Largest
-families: `hermes_state.py` (21), `gateway/run.py` (15), `tools/mcp_tool.py` (15),
-`hermes_cli/kanban.py` (14), `hermes_cli/web_server.py` (13 + 24 routers), `hermes_cli/auth.py`
-(12), `tools/browser_tool.py` (11), `cli.py` (12 `hermes_cli/cli_*_mixin.py`), `run_agent.py`
-(`agent/turn_*.py`, `agent_init.py`, `conversation_loop.py`).
+### Code and runtime
 
-- **Find code by topic, not by facade:** `grep -rn "def name" <dir>/<stem>_*.py`. Reading the
-  facade first is the expensive way (`evals/codebase_navigability/`).
-- **Siblings may import each other and late-import the facade** inside functions. A facade
-  never imports a sibling at module level *and* gets imported by that sibling at module level.
-- **Patch where production reads.** Siblings often do `from <facade> import name` inside the
-  function so `monkeypatch.setattr(facade, "name", ...)` is the seam; a patch on the defining
-  module passes silently. Check the call site's binding before writing a patch target
-  (blind repointing to defining modules broke 130+ tests).
-- **Don't recreate god files.** A file passing ~2,000 lines or a function passing ~300 lines /
-  cyclomatic complexity 30 is the signal to split along `<stem>_<topic>` FIRST, in its own
-  commit. New behaviour goes in a new or topical sibling — never appended to a facade.
-- **No `if/elif` ladders ≥ 4 branches keyed on a name/kind** — use a dict/table → handler
-  (`_SLASH_DISPATCH` in `cli.py`, `_command_handler_table` in the gateway are the shape).
-- **No re-export shims for internal moves** ("keep the old name importable"). Internal paths
-  are not API: plugins build on `ctx` and the documented ABCs. The one-time Sep 2026
-  decomposition compat layer for external plugins has been removed; never reintroduce one.
-- **Moving a symbol means fixing its docs in the same PR:** grep `website/docs`,
-  `skills/`, and every `AGENTS.md` for the old `path.py` + symbol (23 doc files went stale
-  after the refactor). `evals/codebase_navigability/static_metrics.py <tree> <label>` measures
-  file/function/CC/elif distributions before/after a large PR in ~2 min.
+- `scripts/run_tests.sh` is the test entry point. `pytest` direct is forbidden.
+- `state.db` writes go through `SessionDB.acquire()` (or the future `emit()`). Direct
+  SQL outside the projection handler is forbidden in the conversation domain.
+- Branching is `parent_id`-based, not `parent_session_id`-based.
+- Undo writes an event; it does not mutate messages rows.
+- Every state mutation must be loggable as a single event. If a state change requires
+  multiple writes, the writes belong in a single transaction with the event log
+  insertion.
+- `busy_timeout` is set per-connection via `open_db(... timeout=5)` (5 s for write
+  paths). Event-log writes must set this explicitly; `busy_timeout=0` means fail-fast,
+  not "wait forever."
+- `wal_autocheckpoint=1000` is the default for state.db; `100` for kanban.db
+  (write-heavy). Event log may use either, but the choice must be explicit.
+- `synchronous=FULL` is the durable default. NORMAL is acceptable for projections only.
+- `BEGIN IMMEDIATE` is used on every write that takes the WAL write lock up front; 1
+  retry on `SQLITE_IOERR` is the contract. No busy-loop retries.
+- `~/.avunel/hermes-agent/` is the runtime install. The folder name `hermes-agent`
+  stays; it is an identifier, not a brand. Hardcode at your peril — `get_hermes_home()`
+  for code paths, `display_hermes_home()` for user-facing text.
 
-## Code Shape Rules (all languages)
+### Repository and git
 
-- No "defense-in-depth" wrappers, `try/except: pass` around code that cannot fail, or flags
-  nobody sets. Docstrings/comments keep the WHY, cut the WHAT.
-- **Never infer process identity from argv substrings** (`"serve" in cmdline`) — the bug class
-  behind ~10 fleet-update issues (#90778, #87594, #78089, #76129, #91964). Use the canonical
-  matchers `gateway.status.looks_like_gateway_command_line` and
-  `hermes_cli.update_cmd._hermes_holder_subcommand`; flag sets are DERIVED from the parser
-  (`_holder_value_flags()`), never hand-written; match FULL cmdlines and truncate only for
-  display. Details: `hermes_cli/AGENTS.md`.
-- **Never hardcode `~/.hermes`.** `get_hermes_home()` for code paths, `display_hermes_home()`
-  for user-facing text (both from `hermes_constants`). Hardcoding breaks profiles (5 bugs in
-  PR #3575). Profile operations themselves are HOME-anchored
-  (`_get_profiles_root()` = `Path.home()/.hermes/profiles`) so `hermes -p x profile list`
-  sees all profiles — intentional, not a bug.
-- **One process may serve many profiles; code that runs outside a turn binds the owning
-  profile scope explicitly.** A profile = home + secret scope + terminal scope, bound by
-  `gateway/run.py::_profile_runtime_scope` (turn), `tui_gateway/server.py::@_profile_scoped` +
-  `model_switch.py::_session_profile_runtime_scope` (RPC, teardown), `cron/scheduler_provider.py::
-  _profile_cron_scope` (ticker), `gateway/run_agent_cache.py::_run_release_in_profile_scope`
-  (eviction). `os.environ`, module globals and import-time values hold the *launch* profile's, so
-  an unbound read is a silent default-profile leak, never an error: home/config/`.env`-derived
-  module constants are a bug class — key slots by `hermes_home_key()` or resolve at call time.
-  Needs a binding: boot probes (`check_fn`, MCP discovery, hooks), session end/eviction, tickers,
-  deferred callbacks, RPC methods, config readers, thread hops (`spawn_context_thread`), child
-  spawns (`served_profile_child_env`, never `os.environ.copy()`). Fail-closed reads exist only after
-  `set_multiplex_active(True)`. Prove live with two homes (A→B→A) under multiplex, not one temp
-  `HERMES_HOME`. Advisory lint: `scripts/check_profile_scope_patterns.py`.
-- **Machine facts and resource lookup go through `hermes_platform`.** `hermes_platform.host` is the
-  one answer for OS family, native architecture (`IsWow64Process2` → `platform.machine()`; never
-  `PROCESSOR_ARCHITECTURE` alone, it reads AMD64 under x64-on-ARM64 emulation), CPU identity, and
-  WSL/container/Termux. Facts are cached per process and take **no environment-variable input**, so
-  a hardware recognizer (`host/products.py`) cannot be set from a shell. Distinguish the control
-  host (where this Python runs) from the terminal execution target (SSH/container) and the Desktop
-  client (another machine): `host.*` answers only the first. A new bare `shutil.which` or a
-  hand-written known-path table outside `hermes_platform/` fails
-  `tests/test_managed_runtime_resolution.py` unless allowlisted with a reason; resolvers land in
-  `hermes_platform/resolver/`. Lookup never installs, downloads, or starts anything.
-- **Argparse alias dispatch:** `add_parser("list", aliases=["ls"])` sets `dest` to the literal
-  the user typed (`"ls"`). Dispatch must accept both (caught PTY-testing `hermes webhook ls`).
-- **Don't wire in dead code without E2E validation.** Unshipped code was dead for a reason;
-  E2E the real resolution chain with real imports against a temp `HERMES_HOME` first.
+- Push only from the clean transport repo (`~/projects/avunel-agent-clean/`). The
+  runtime install is a working copy, not a push source.
+- The clean repo's `upstream` is a *manual* reference to NousResearch; it is not
+  fetched by `avunel update`. `origin` is the fork on GitHub.
+- `LICENSE` keeps the MIT + Nous Research attribution. The Avunel modifications are
+  marked separately.
+- Commit history should be readable: many small commits, not one giant one. The
+  user has asked for this explicitly; do not bundle.
 
-### TypeScript style (desktop, TUI, website, future TS packages)
+## Documentation
 
-Small nanostores over component state when state is shared or read by distant UI; each
-feature owns its atoms (chat near chat, shared in `src/store`); rendering components use
-`useStore`, non-rendering actions read `$atom.get()`; never thread state through three
-components when the leaf can subscribe; persistence sits beside the atom that owns it. Route
-roots stay thin (compose routes + shell, never controllers). No monolithic hooks — one narrow
-job each; colocated action modules over god hooks. Pure side-effect callbacks use the terse
-void form `onState={st => void setGatewayState(st)}`; async handlers make intent explicit
-`onClick={() => void save()}`. Interfaces for public props and shared object shapes (not
-`type X = {...}`); extend React primitives (`React.ComponentProps<'button'>`, `Omit`, `Pick`).
-Table-driven beats condition ladders for ids/routes/views. `src/app` owns routes/pages,
-`src/store` shared atoms, `src/lib` pure helpers.
+- `avunel-roadmap.md` and `avunel-addendum-v5-final.md` in `~/Downloads/` (or
+  `~/projects/avunel-agent-clean/planning/` after a copy) are the source of truth for
+  what Avunel is and where it is going. The addendum is referenced from the body
+  sections above.
+- After a real problem is resolved, write the journey in
+  `/home/iki/documentation-problem-solving/`. The format is in
+  `collaborating-with-iki` § 11.
+- Read the addendum before any design work. Read the problem-solving docs after any
+  resolved incident.
 
-## Dependency Pinning Policy
+## Routing Table
 
-All dependencies carry upper bounds (litellm compromise #2796/#2810; Mini Shai-Hulud worm,
-May 2026). PyPI: `>=floor,<next_major` (`"httpx>=0.28.1,<1"`); pre-1.0: `<0.(minor+2)`
-(`>=0.29,<0.32`). Git URLs: 40-char commit SHA. GitHub Actions: SHA + `# vN` comment. CI-only
-Python requirements: `==exact`. A bare `>=X.Y.Z` is rejected by CI and reviewers.
-After changing `pyproject.toml`, run `hermes pm lock`, re-source `./activate`, and commit
-`pyproject.toml` with `uv.lock`. Reference: #2810 (bounds), #9801 (SHA pinning + audit CI).
+Read the area `AGENTS.md` before editing in that area. The root file holds only what
+applies everywhere.
 
-PM owns Hermes Python dependency changes. Use `pm.sync_venv(['extra'], explicit=True)`
-for declared runtime extras, `hermes pm install` for setup/sync, and `hermes pm repair`
-for damaged dependencies. Do not mutate Hermes environments with raw pip or uv.
-Use `pm.build_environment` for fresh build outputs and `pm.ensure_environment` for
-isolated tool environments. Callers receive an interpreter or tool path, not uv.
-Nix's declarative uv2nix builds and unrelated user projects remain independently owned.
-
-The `[tool.uv] exclude-newer = "14 days"` quarantine covers **Hermes's own dependencies only**
-(every registry package in core's `uv.lock`). Plugin `python_dependencies` follow the plugin's own
-policy: when PM generates the plugin workspace (`pm/workspace.py::_core_release_quarantine`) the
-global cutoff moves onto each core-locked package, so plugin-only packages are not filtered and a
-plugin still cannot drag a core package past the window. Teknium's ruling: "plugins dont have to
-abide by our 14 day rule … Only hermes' dependencies themselves have to." We recommend (not require)
-plugin authors adopt their own quarantine — the developer guide and `plugin-catalog/README.md` carry
-that guidance.
-
-## Commits, Merges, PRs
-
-- **Squash merges from stale branches silently revert recent fixes.** Before squash-merging,
-  bring the branch to `main` (`git fetch origin main && git reset --hard origin/main`, re-apply
-  the PR's commits). Verify with `git diff HEAD~1..HEAD` after merging — unexpected deletions
-  are a red flag.
-- Salvage by cherry-pick so contributor authorship survives (see rubric).
-- Tests per fix: 1–2 INVARIANT tests (behaviour contract, proven red on base), never
-  change-detectors; ≤ 2 tests is the salvage bar too. Reject/rewrite in salvaged diffs:
-  appendages to facades, new god helpers, compat aliases, wrappers.
-
-## Testing (applies everywhere)
-
-**ALWAYS use `scripts/run_tests.sh`**, never bare `pytest`. It enforces CI parity: credential
-vars unset, `TZ=UTC`, `LANG=C.UTF-8`, `HERMES_HOME` → temp dir, and per-file subprocess
-isolation via `scripts/run_tests_parallel.py` (no xdist; workers scale with CPU count) so
-module-level dicts/ContextVars cannot leak between files. Direct `pytest` on a big machine
-with API keys set has caused repeated "works locally, fails in CI" incidents (and the reverse).
-
-Prepare a test interpreter with the checkout's bootstrapped Python:
-
-```bash
-python -m pm.build_env --source . --out .venv --group dev --group test
-```
-
-This is a fresh build, not an in-place sync. If the disposable output exists,
-stop its processes and intentionally remove it before regeneration. The runner
-clears `PYTHONPATH`, so PM shell activation alone does not supply pytest. For a
-fresh output outside the checkout, set `HERMES_PYTHON` to its interpreter.
-
-```bash
-scripts/run_tests.sh                                    # full suite
-scripts/run_tests.sh tests/gateway/                     # one directory
-scripts/run_tests.sh tests/agent/test_foo.py -k test_x  # runner is file-granular; -k narrows
-scripts/run_tests.sh -v --tb=long                       # pytest flags pass through
-```
-
-- **Flake policy:** a failing FILE is retried once in a fresh subprocess (`--file-retries`;
-  `HERMES_TEST_FILE_RETRIES=0` disables); a worker killed by signal or the file timeout is never
-  retried (relaunching a runaway doubles the damage). Pass-on-retry is green but printed under `⚠ FLAKY`
-  with both outputs — a bug to fix, not noise. Timing tests must not assume a quiet runner:
-  wall-clock bounds ≥ 2s, event-based sync, no `assert not _wait_until(...)` races.
-- **Placement mirrors the source tree.** A test lives in `tests/<top-level source dir>/` (`tests/hermes_cli/`,
-  `tests/agent/`, `tests/hermes_state/`, `tests/gateway/relay/`, ...); installer/updater script tests
-  under `tests/scripts/{install,desktop_update}/`. Only tests of root-level modules (`batch_runner`,
-  `utils`, `hermes_constants`, packaging) sit directly in `tests/`. No issue numbers in filenames —
-  cite the issue in the module docstring (`test_89315_x.py` → `test_x.py`, "Regression for #89315").
-- **Placement (CI lanes):** `scripts/ci/classify_changes.py` picks jobs by changed files. A Python test
-  asserting about `package.json`, `package-lock.json`, `tsconfig.json`, or `.ts/.tsx/.js/
-  .mjs/.cjs` sources will not run on a JS-only PR (green on PR, red on `main` where the
-  classifier fails open). Such tests belong in the vitest suite, not `tests/*.py`.
-- **Tests must not write to `~/.hermes/`.** The autouse `_isolate_hermes_home` fixture in
-  `tests/conftest.py` redirects `HERMES_HOME`; never hardcode `~/.hermes/` in tests. Profile
-  tests also mock `Path.home()` so `_get_profiles_root()` / `_get_default_hermes_home()` stay
-  in the temp dir (pattern: `tests/hermes_cli/test_profiles.py`):
-  ```python
-  @pytest.fixture
-  def profile_env(tmp_path, monkeypatch):
-      home = tmp_path / ".hermes"; home.mkdir()
-      monkeypatch.setattr(Path, "home", lambda: tmp_path)
-      monkeypatch.setenv("HERMES_HOME", str(home))
-      return home
-  ```
-  Tests that `patch.object(Path, "home", ...)` must ALSO set `HERMES_HOME` — code reads the
-  env var, not `Path.home()/.hermes`.
-
-### Don't fake the host OS
-
-Behaviour that genuinely differs per host is tested ON that host with `@pytest.mark.platforms("linux")`
-/ `platforms("macos")` / `platforms("windows")`, never by patching `sys.platform`. Host-independent things stay
-unmarked: pure functions that take the platform as data (`hidden_windows_child_options(opts,
-is_windows=True)`) and declaration/packaging invariants ("pyproject declares `tzdata` with a
-`sys_platform == 'win32'` marker"). Setting a module-level `IS_WINDOWS` flag and calling
-`windows_detach_flags()` IS a fake. The line: **if the test needs the interpreter to believe it
-is on another OS to pass, it belongs on that OS.** A test that walks several platforms in
-sequence is split — host-native arm on Linux, other arms as their own marked tests.
-
-One marker per test, with any number of spec strings (any-of semantics) plus
-optional arch filters. To gate on several OSes, pass several specs to ONE
-marker — never stack several `platforms()` decorators on one test (the
-conftest rejects that at collection):
-
-```python
-@pytest.mark.platforms("linux", "macos")  # ONE marker, two specs: runs on either
-def test_posix_signal_path(): ...
-```
-
-Other single-marker forms (each is a complete marker on its own):
-`platforms("windows")` (native Windows only), `platforms("not macos")`
-(anywhere except macOS), `platforms("windows", arch="arm64")` (native Windows
-on arm64), `platforms("posix")` (Linux or macOS).
-
-Specs: `linux`, `macos`, `windows`, `posix`, `any`, and `not <spec>`.
-The historic `linux_only` / `macos_only` / `windows_only` markers have been
-fully replaced — `platforms` is the only host-gating marker in the tree.
-
-**Live Windows process-topology E2E: the `wine2e` lane.** For claims about
-real Windows process behavior that mocks cannot reproduce (venv-holder
-scans, process-tree parentage, launcher/worker chains, detach semantics),
-there is an on-demand workflow `windows-venv-e2e.yml` that runs
-`tests/hermes_cli/test_venv_holder_windows_live.py` on a real
-`windows-latest` runner — spawning actual processes and driving the real
-detection code, no mocked psutil. It fires ONLY on pushes to `wine2e/**`
-branches (inert on PRs and main; costs nothing on normal work). The proven
-workflow: write probes that pin CORRECT behavior, push to a `wine2e/`
-branch to reproduce the bugs live on unfixed code, build the fix, iterate
-until the lane is green, then open the PR — the live receipt on the exact
-head is the Windows proof reviewers ask for. Extend the live suite when
-touching that subsystem; assert against the gateway ANCESTOR found by
-argv, not the direct parent (the venv shim makes every spawn a
-launcher/worker chain).
-
-**Use the marker, never a bare `skipif`.** `scripts/ci/list_os_marked_tests.py`
-decides which files an OS lane imports by resolving the quoted specs inside
-`platforms(...)` (`"posix"` reaches the macOS lane, `"not linux"` reaches
-both others), and the lane then selects with `-m platforms` while the
-conftest's per-test host skips do the actual gating. A test gated with
-`@pytest.mark.skipif(sys.platform != "win32")` therefore runs on no host at
-all, silently — it is never imported by the lane that would run it, and the
-full-suite lanes skip it. `skipif(sys.platform == "win32")` becomes
-`platforms("posix")`; a non-host condition (`os.geteuid() == 0`) stays a
-separate `skipif` beside the marker. A misspelt spec is a collection error,
-not a skip. Don't stack a module-level `pytestmark =
-platforms(...)` on a file whose tests carry their own host marker — the
-conftest hard-rejects tests carrying two `platforms()` markers (a test
-skipped on every host, reported green everywhere).
-Equally, don't `pytest.skip()` the non-host rows of a `@parametrize` over
-platforms — split it into one marked test per OS, or only the host's row ever
-executes.
-
-### Don't write change-detector tests
-
-A change-detector fails whenever data *expected to change* is updated — model catalogs,
-`_config_version`, enumeration counts, hardcoded model lists. It adds no coverage and taxes
-every routine update. Don't: `assert "gemini-2.5-pro" in _PROVIDER_MODELS["gemini"]`,
-`assert DEFAULT_CONFIG["_config_version"] == 21`, `assert len(models) == 8`. Do: `assert
-"gemini" in _PROVIDER_MODELS and len(_PROVIDER_MODELS["gemini"]) >= 1` (plumbing works);
-`assert raw["_config_version"] == DEFAULT_CONFIG["_config_version"]` (migration reaches
-latest); `assert not (set(moonshot_models) & coding_plan_only_models)` (no leak); every
-catalog model has a context-length entry (relationship). If it reads like a snapshot, delete
-it; if it reads like a contract between two pieces of data, keep it. Reviewers reject new
-change-detectors; authors convert them before re-review.
-
-### Never read source code in tests
-
-A test that reads a `.py`/`.ts`/`.tsx` file's text tests the *shape of the source*, not
-behavior — banned outright. It passes when the implementation is subtly broken (regex matches
-a mis-wired call site) and fails on correct refactors; it can't run against bundled/minified
-artifacts; it blocks structural cleanup; it gives false confidence. Don't
-`fs.readFileSync('main.ts')` + `assert.match(source, /spawn\(...hiddenWindowsChildOptions/)`.
-Do extract the logic into a pure/DI-testable function and call it:
-```ts
-export function hiddenWindowsChildOptions(options = {}, isWindows = process.platform === 'win32') {
-  if (!isWindows || 'windowsHide' in options) return options
-  return { ...options, windowsHide: true }
-}
-```
-If the logic lives inline in a god-file and extraction feels disruptive, that is the signal to
-extract, not to regex around it.
-
-## Routing Table — working in X → read X/AGENTS.md
-
-| Area | Read | Covers |
+| Area | AGENTS.md | Notes |
 |---|---|---|
-| `run_agent.py`, `agent/` | `agent/AGENTS.md` | AIAgent + mixins, turn phases, caching integrity, message-flow invariants, compression, model/aux resolution |
-| `cli.py`, `hermes_cli/`, `main.py` | `hermes_cli/AGENTS.md` | CLI mixins, `_SLASH_DISPATCH`, slash registry, config system + loaders, skins, `hermes update` pipeline, profiles / multiplex |
-| `gateway/` | `gateway/AGENTS.md` | Adapters, two message guards, streaming contract, background notifications, gateway vs desktop lifecycle, token locks, scoped secrets |
-| `tools/`, `toolsets.py`, `model_tools.py` | `tools/AGENTS.md` | Adding tools, registry, toolsets, delegation, cross-tool references, backends |
-| `plugins/`, `hermes_cli/plugins*.py` | `plugins/AGENTS.md` | Plugin kinds, native compat contract, in-tree policy |
-| `plugin-catalog/` entries, catalog reviews | `plugin-catalog/README.md` (canonical admission rules), `website/docs/developer-guide/plugins/catalog-submission.md` (mirror + submission guide) | What a listed plugin may do; keep the two rule blocks identical |
-| `tui_gateway/`, `ui-tui/` | `tui_gateway/AGENTS.md` | Process model, JSON-RPC transport, key surfaces, slash flow, dev commands |
-| `web/`, `hermes_cli/web_routers/` | `web/AGENTS.md` | Dashboard embeds the real TUI; what React may and may not rebuild |
-| `apps/desktop/` | `apps/desktop/AGENTS.md`, `apps/desktop/src/AGENTS.md` | Desktop judgment guide; `serve` backend, slash palette curation, Bot Mode canonical chat |
-| `skills/`, `optional-skills/`, `agent/curator*.py` | `skills/AGENTS.md` | Frontmatter, HARDLINE authoring standards, curator |
-| `cron/`, kanban (`hermes_cli/kanban*.py`, `tools/kanban_tools.py`, `plugins/kanban/`) | `cron/AGENTS.md` | Scheduler invariants, job fields, kanban board/dispatcher |
-| `gateway/platforms/` new adapter | `gateway/platforms/ADDING_A_PLATFORM.md` | Step-by-step adapter guide |
-| profiles / multiplex / secret scope (any area) | `gateway/AGENTS.md` § Profile scope, `website/docs/user-guide/multi-profile-gateways.md` § What is isolated per profile | which execution points bind scope, what is isolated per profile |
+| `agent/` | `agent/AGENTS.md` | Agent loop, prompt builder, memory provider interface |
+| `cron/` | `cron/AGENTS.md` | Scheduled jobs, delivery, cron-specific state |
+| `gateway/` | `gateway/AGENTS.md` | Messaging platform adapters, hosted rooms, slash commands |
+| `hermes_cli/` | `hermes_cli/AGENTS.md` | CLI commands, subcommands, banner, version, skin engine |
+| `plugins/` | `plugins/AGENTS.md` | Plugin contract, `register(ctx)`, admission gate |
+| `skills/` | `skills/AGENTS.md` | Skill authoring, in-repo vs user-local |
+| `tools/` | `tools/AGENTS.md` | Standalone tools (skill manager, etc.) |
+| `tui_gateway/` | `tui_gateway/AGENTS.md` | TUI, change_watcher, widget host |
+| `web/` | `web/AGENTS.md` | Web UI (Electron), desktop bridge, IPC |
 
-Long-form background lives in `website/docs/developer-guide/` (agent-loop, prompt-assembly,
-context-compression-and-caching, gateway-internals, tools-runtime, plugins/, cron-internals,
-session-storage, ...). Workflow rules (PR/issue/review/salvage process) live in the
-`hermes-agent-dev` skill, not here.
+A short prompt (`agent/subdirectory_hints.py`) reads the relevant `AGENTS.md` and injects
+it into the system prompt. Up to 32k chars; truncated head/tail with a warning past that.

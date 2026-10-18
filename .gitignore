@@ -319,3 +319,8 @@ native/fts5_cjk/*.so
 /pm/.lock.json.lock
 
 apps/desktop/.dist-build*
+
+# Avunel planning documents (addendum, roadmap, design notes). Personal
+# artifacts of the planning phase, never code. Same rationale as
+# docs/superpowers/* above.
+planning/
