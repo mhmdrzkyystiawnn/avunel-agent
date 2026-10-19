@@ -1,12 +1,14 @@
-"""The fork-upstream prompt must never block a non-interactive update (#60240).
+"""Avunel never offers an ``upstream`` remote, interactive or not.
 
-`_sync_with_upstream_if_needed` asks "Add official repo as 'upstream' remote?"
-on fork checkouts with no upstream remote. In unattended contexts (CI, cron,
-the desktop updater hand-off) stdin is open but nobody answers, so a bare
-``input()`` blocks forever. These tests pin the gate: under ``assume_yes`` or
-a non-TTY stdio pair the prompt is skipped as a decline WITHOUT persisting the
-skip marker or touching git remotes, and both update call sites forward the
-interaction state.
+Avunel does not track upstream Hermes (K9). ``_sync_with_upstream_if_needed``
+and ``_offer_upstream_remote`` are stubs that return False without prompting,
+without touching git remotes, and without persisting a skip marker.
+
+These tests pin that stub: no prompt is ever issued, in any stdio combination
+or with any ``input_fn``, and no remote is ever added. The historical concern
+(#60240: a bare ``input()`` blocking unattended updates) is moot because no
+prompt exists any more — the assertion below is stronger than the gate it
+replaced.
 """
 
 from types import SimpleNamespace
@@ -43,7 +45,7 @@ def _tty(stdin: bool, stdout: bool):
     )
 
 
-class TestUpstreamPromptNonInteractive:
+class TestNoUpstreamPrompt:
     def test_assume_yes_skips_prompt_without_touching_remotes(
         self, fork_without_upstream, capsys
     ):
@@ -75,48 +77,37 @@ class TestUpstreamPromptNonInteractive:
         fork_without_upstream.add_remote.assert_not_called()
         fork_without_upstream.mark_skip.assert_not_called()
 
-    def test_gateway_prompt_routes_through_input_fn(self, fork_without_upstream):
+    @pytest.mark.parametrize("assume_yes", [True, False])
+    def test_input_fn_is_never_invoked(self, fork_without_upstream, assume_yes):
+        """A gateway-provided ``input_fn`` is never reached: there is nothing to ask."""
         prompts = []
 
         def gw_input(prompt, default=""):
             prompts.append((prompt, default))
-            return "n"
+            return "y"
 
-        p_in, p_out = _tty(False, False)
-        with p_in, p_out:
-            update_cmd._sync_with_upstream_if_needed(
-                ["git"], fork_without_upstream.cwd, input_fn=gw_input
-            )
-
-        assert len(prompts) == 1 and prompts[0][1] == "n"
-        fork_without_upstream.stdin_input.assert_not_called()
-        fork_without_upstream.add_remote.assert_not_called()
-        fork_without_upstream.mark_skip.assert_called_once_with()
-
-    def test_interactive_decline_still_persists_marker(self, fork_without_upstream):
-        fork_without_upstream.stdin_input.return_value = "n"
         p_in, p_out = _tty(True, True)
         with p_in, p_out:
-            update_cmd._sync_with_upstream_if_needed(
-                ["git"], fork_without_upstream.cwd
+            checked = update_cmd._sync_with_upstream_if_needed(
+                ["git"], fork_without_upstream.cwd, assume_yes=assume_yes, input_fn=gw_input
             )
 
-        fork_without_upstream.stdin_input.assert_called_once()
+        assert checked is False
+        assert prompts == []
+        fork_without_upstream.stdin_input.assert_not_called()
         fork_without_upstream.add_remote.assert_not_called()
-        fork_without_upstream.mark_skip.assert_called_once_with()
-
-    def test_interactive_accept_adds_upstream(self, fork_without_upstream):
-        fork_without_upstream.stdin_input.return_value = "y"
-        with patch.object(
-            update_cmd, "_count_commits_between", return_value=-1
-        ), patch.object(update_cmd.subprocess, "run"):
-            p_in, p_out = _tty(True, True)
-            with p_in, p_out:
-                update_cmd._sync_with_upstream_if_needed(
-                    ["git"], fork_without_upstream.cwd
-                )
-
-        fork_without_upstream.add_remote.assert_called_once_with(
-            ["git"], fork_without_upstream.cwd
-        )
         fork_without_upstream.mark_skip.assert_not_called()
+
+    def test_offer_upstream_remote_is_a_no_op_stub(self, fork_without_upstream):
+        """Called directly, the offer stub still declines without prompting."""
+        from hermes_cli.update_cmd_git import _offer_upstream_remote
+
+        p_in, p_out = _tty(True, True)
+        with p_in, p_out:
+            added = _offer_upstream_remote(
+                ["git"], fork_without_upstream.cwd, assume_yes=False, input_fn=None
+            )
+
+        assert added is False
+        fork_without_upstream.stdin_input.assert_not_called()
+        fork_without_upstream.add_remote.assert_not_called()

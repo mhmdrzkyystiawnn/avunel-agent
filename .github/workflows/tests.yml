@@ -13,6 +13,13 @@ on:
         type: boolean
         required: false
         default: false
+      slices:
+        description: >-
+          How many parallel slices to split the Python suite into. 1 keeps the
+          single-job shape; above 1 adds a matrix of that many runners.
+        type: number
+        required: false
+        default: 4
 
 permissions:
   contents: read
@@ -22,35 +29,63 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Emits the slice indices only — never the file lists. Each slice computes its
+  # own partition from the checkout (see _slice_files in run_tests_parallel.py),
+  # which is deliberately round-robin and cache-independent: a partition read
+  # from a per-job duration cache could differ between jobs and silently drop or
+  # double-run files. Shipping 5.2k paths through a job output would also cost
+  # ~236 KB per run for no benefit.
+  plan:
+    name: Plan test slices
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Compute slice indices
+        id: plan
+        env:
+          SLICES: ${{ inputs.slices }}
+        run: |
+          set -euo pipefail
+          [[ "$SLICES" =~ ^[1-9][0-9]?$ ]] || { echo "slices must be 1-99, got: $SLICES" >&2; exit 1; }
+          matrix="$(printf '{"slice":[%s]}' "$(seq -s, 1 "$SLICES")")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Planned $SLICES slice(s): $matrix"
+
   test:
+    # The name is load-bearing: branch protection requires the check
+    # "Python tests / Run tests", and a matrix job still reports that name (one
+    # entry per slice). Renaming it would silently drop the required check.
     name: Run tests
+    needs: plan
     # ubuntu-latest is the only larger-runner label that has ever resolved to a
     # non-4-core runner on this fork (see e.g. install-e2e.yml job history:
     # every "ubuntu-latest-32-core" run actually ran on ubuntu-latest, 4-core).
     # The repo plan is pro on a personal account and has no access to GitHub-hosted
-    # 32-core runners. Matrix is therefore omitted; this is a single job.
+    # 32-core runners.
     #
-    # HERMES_TEST_WORKERS=4 matches the 4-core runner 1:1. We have no benchmark
-    # showing oversubscription (e.g. workers=8) helps on this 4-core; without
-    # evidence we pick the safe value. If real CI data later shows 4 is
-    # undersubscribed (CPU idle), bump to 8 in a follow-up.
+    # Why slices and not more workers: the suite is ~5.2k files / ~43.7k tests,
+    # and measured wall time at HERMES_TEST_WORKERS=4 on this 4-core runner is
+    # 67-86 min for green runs — 30-40% efficiency. Each test file is its own
+    # subprocess, so the runner spends much of its time on process startup and
+    # I/O rather than burning CPU; adding workers to one 4-core box cannot
+    # recover that, adding runners can. Four slices put ~1/4 of the files on
+    # each of four runners, so wall time divides while total runner-minutes stay
+    # roughly the same.
     #
-    # Wall-time estimate at 4 workers, 4-core, cache active:
-    #   total CPU work at 32-core ref: 33.671s (5.210 files)
-    #   slowdown 4x on 4-core:        134.685s single-thread CPU work
-    #   perfect efficiency:           134.685 / 4 = 33.671s wall
-    #   50% efficiency:                67.342s = ~67 min
-    #   30% efficiency:                 112.2s = ~112 min
-    # Real wall time on this fork's 4-core runner (2026-10-17/18): 67, 78 and
-    # 86 min for green runs — 30-40% efficiency, not the 40-55% an earlier
-    # bound assumed. That bound (90 min) cancelled the 2026-10-18 main run
-    # (39108982764) while the suite was still working, and the cancelled job
-    # failed the "All required checks pass" gate.
-    # So there is deliberately no job-level bound: scripts/run_tests.sh already
-    # caps every test file (HERMES_TEST_FILE_TIMEOUT=600), which is where a real
-    # hang shows up. A wall bound here only converts a slow runner into a false
-    # failure. GitHub's hosted-job ceiling of 6 hours still applies.
+    # There is deliberately no tight job-level wall bound: scripts/run_tests.sh
+    # already caps every test file (HERMES_TEST_FILE_TIMEOUT=600), which is where
+    # a real hang shows up. A tight bound here only converts a slow runner into
+    # a false failure. GitHub's hosted-job ceiling of 6 hours still applies; this
+    # is set below it so a wedged slice cannot hold a runner for the full day.
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      # One failing slice must not cancel the others: the point is to see every
+      # failure in one run rather than one per re-run.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v7.0.1
@@ -100,21 +135,30 @@ jobs:
         # its own freshly-spawned `python -m pytest <file>` subprocess with
         # bounded parallelism. No xdist, no shared workers, no module-level
         # state leakage between files.
+        #
+        # With slices=1 the matrix is [1] and HERMES_TEST_SLICE is "1/1", which
+        # _slice_files short-circuits to "all files" — identical to the previous
+        # single-job behaviour.
         run: |
           scripts/run_tests.sh
         env:
           HERMES_TEST_WORKERS: 4
           HERMES_TEST_FILE_TIMEOUT: 600
+          HERMES_TEST_SLICE: ${{ matrix.slice }}/${{ inputs.slices }}
           # Ensure tests don't accidentally call real APIs
           OPENROUTER_API_KEY: ""
           OPENAI_API_KEY: ""
           NOUS_API_KEY: ""
 
       # Only green first-attempt durations are written by the runner, so a
-      # hang on main cannot ratchet its own bound upward.
+      # hang on main cannot ratchet its own bound upward. Each slice merges its
+      # own measurements into the restored cache, so the saved file is that
+      # slice's contribution; the key carries the slice index because a matrix
+      # job saving one shared key would have the last writer win and lose the
+      # other slices' entries. restore-keys above picks the most recent.
       - name: Save per-file duration cache (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('test_durations.json') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: test_durations.json
-          key: test-durations-${{ github.run_id }}
+          key: test-durations-${{ github.run_id }}-${{ matrix.slice }}

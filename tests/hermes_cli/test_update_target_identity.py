@@ -15,6 +15,7 @@ import pytest
 
 from hermes_cli import main as cli_main, update_cmd, update_receipt
 from hermes_cli.update_inventory import UpdatePlan
+from hermes_cli.source_releases import OFFICIAL_REPOSITORY
 from hermes_cli.update_cmd import _sync_with_upstream_if_needed
 
 
@@ -89,12 +90,14 @@ def update_tree(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('case', ['main', 'explicit', 'missing', 'no-move', 'wrong-branch',
-                                'fork-no-upstream', 'fork-upstream', 'fork-upstream-push-ok',
-                                'fork-upstream-wrong-branch', 'fork-upstream-reverted',
-                                'fork-late', 'fork-late-push-ok', 'fork-late-wrong-branch',
-                                'fork-late-reverted', 'check-main',
-                                'check-explicit', 'check-missing', 'check-upstream'])
+                                'fork-no-upstream',
+                                'check-main', 'check-explicit', 'check-missing'])
 def test_branch_update_uses_real_refs_and_completion_request(update_tree, monkeypatch, case, capsys):
+    """Branch update resolves real refs and requests completion from the updater.
+
+    Origin-only: the ``fork-upstream*``, ``fork-late*`` and ``check-upstream``
+    cases exercised the upstream sync that Avunel no longer has (K9).
+    """
     t = update_tree
     git(t.clone, 'checkout', '-q', 'main')
     t.args.channel = 'main'
@@ -106,20 +109,11 @@ def test_branch_update_uses_real_refs_and_completion_request(update_tree, monkey
         t.args.branch = 'chosen'
     if case in {'missing', 'check-missing'}:
         t.args.branch = 'absent'
-    if case.startswith('fork-') or case == 'check-upstream':
-        # Early sync starts level with origin; late sync first consumes origin.
-        git(t.origin, 'reset', '--hard', t.wanted if case.startswith('fork-late') else t.base)
-        if case.startswith(('fork-upstream', 'fork-late')) or case == 'check-upstream':
-            upstream = t.origin.parent / 'upstream'
-            git(t.origin.parent, 'clone', '-q', str(t.origin), str(upstream))
-            git(upstream, 'reset', '--hard', t.newer)
-            git(t.clone, 'remote', 'add', 'upstream', str(upstream))
-            if case.endswith('push-ok'):
-                git(t.origin, 'config', 'receive.denyCurrentBranch', 'updateInstead')
+    if case == 'fork-no-upstream':
+        # Early sync starts level with origin.
+        git(t.origin, 'reset', '--hard', t.base)
     local = t.clone / '.gitignore'
     local_work = local.read_bytes() + b'# local work\n'
-    if case.startswith('fork-late'):
-        local.write_bytes(local_work)
     run = subprocess.run
     pushes = []
 
@@ -130,33 +124,21 @@ def test_branch_update_uses_real_refs_and_completion_request(update_tree, monkey
             if case == 'no-move':
                 return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
             result = run(command, *args, **kwargs)
-            if case in {'wrong-branch', 'fork-upstream-wrong-branch'}:
+            if case == 'wrong-branch':
                 run(['git', 'checkout', '-qb', 'wrong'], cwd=t.clone, check=True, capture_output=True)
-            if case == 'fork-upstream-reverted':
-                run(['git', 'reset', '--hard', t.base], cwd=t.clone, check=True, capture_output=True)
             return result
         result = run(command, *args, **kwargs)
-        if 'pull' in command and case.startswith('fork-late'):
-            if case.endswith('wrong-branch'):
-                run(['git', 'checkout', '-qb', 'wrong'], cwd=t.clone, check=True, capture_output=True)
-            if case.endswith('reverted'):
-                run(['git', 'reset', '--hard', t.base], cwd=t.clone, check=True, capture_output=True)
         if 'push' in command and 'origin' in command:
             pushes.append(result.returncode)
         return result
 
     monkeypatch.setattr(subprocess, 'run', fault)
-    fails = case in {'missing', 'check-missing', 'no-move', 'wrong-branch',
-                     'fork-upstream-wrong-branch', 'fork-upstream-reverted',
-                     'fork-late-wrong-branch', 'fork-late-reverted'}
+    fails = case in {'missing', 'check-missing', 'no-move', 'wrong-branch'}
     if fails:
         with pytest.raises(SystemExit) as error:
             cli_main.cmd_update(t.args)
         assert error.value.code == 1
         assert t.requests == []
-        if case.startswith('fork-late'):
-            assert git(t.clone, 'show', 'stash@{0}:.gitignore') == local_work.decode().strip()
-            assert local.read_bytes() != local_work
     else:
         cli_main.cmd_update(t.args)
         if t.args.check:
@@ -164,8 +146,6 @@ def test_branch_update_uses_real_refs_and_completion_request(update_tree, monkey
             assert git(t.clone, 'rev-parse', 'HEAD') == t.base
             output = capsys.readouterr().out
             assert ('absent' if case == 'check-missing' else 'update') in output.lower()
-            if case == 'check-upstream':
-                assert git(t.clone, 'rev-parse', 'upstream/main') == t.newer
         else:
             request, = t.requests
             assert request['assume_yes'] is True
@@ -173,17 +153,6 @@ def test_branch_update_uses_real_refs_and_completion_request(update_tree, monkey
             expected = t.base if case == 'fork-no-upstream' else t.wanted if case == 'explicit' else t.newer
             assert git(t.clone, 'rev-parse', 'HEAD') == expected
             assert request['source'] == str(t.clone)
-            if case.startswith(('fork-upstream', 'fork-late')):
-                assert request['expected_sha'] == expected
-                output = capsys.readouterr().out
-                assert 'Code did not move' not in output
-                assert 'Already up to date' not in output
-                origin_before = t.wanted if case.startswith('fork-late') else t.base
-                assert git(t.origin, 'rev-parse', 'HEAD') == (t.newer if case.endswith('push-ok') else origin_before)
-                assert pushes and all((rc == 0) is case.endswith('push-ok') for rc in pushes)
-                if case.startswith('fork-late'):
-                    assert local.read_bytes() == local_work
-                    assert not git(t.clone, 'stash', 'list')
             if case == 'fork-no-upstream':
                 assert 'official repo not checked' in request['completion_message']
                 assert git(t.clone, 'remote') == 'origin'
@@ -200,11 +169,11 @@ def test_stable_git_uses_remote_identity_without_moving_local_tags(update_tree, 
     t = update_tree
     # The stable channel is an R2 record whose published build pins t.wanted
     # (the documented reader seam; see test_source_channel_integration).
-    record = {"schema": 1, "name": "stable", "repository": "NousResearch/hermes-agent",
+    record = {"schema": 1, "name": "stable", "repository": OFFICIAL_REPOSITORY,
               "policy": "stable-release", "state": "active", "identity": {}, "nextSequence": 2,
               "head": {"buildId": "build-fixture", "sequence": 1}}
     manifest = {"schema": 1, "request": {"buildId": "build-fixture", "channel": "stable", "sequence": 1,
-                "repository": "NousResearch/hermes-agent", "commit": t.wanted, "sourceVersion": "1.1.0",
+                "repository": OFFICIAL_REPOSITORY, "commit": t.wanted, "sourceVersion": "1.1.0",
                 "version": "0.0.1", "identity": {}, "bundleEnv": {}}, "packages": []}
     monkeypatch.setattr(source_releases, '_resolve_channel',
                         lambda name, repository: ChannelResolution(record, record, manifest))
@@ -277,11 +246,11 @@ def test_stable_zip_consumes_the_same_commit_through_the_real_swap(update_tree, 
     archive = tmp_path / 'source.zip'
     git(t.origin, 'archive', '--format=zip', '--prefix=hermes-agent-source/', f'--output={archive}', t.wanted)
     archive_bytes = archive.read_bytes()
-    record = {"schema": 1, "name": "stable", "repository": "NousResearch/hermes-agent",
+    record = {"schema": 1, "name": "stable", "repository": OFFICIAL_REPOSITORY,
               "policy": "stable-release", "state": "active", "identity": {}, "nextSequence": 2,
               "head": {"buildId": "build-fixture", "sequence": 1}}
     manifest = {"schema": 1, "request": {"buildId": "build-fixture", "channel": "stable", "sequence": 1,
-                "repository": "NousResearch/hermes-agent", "commit": t.wanted, "sourceVersion": "1.1.0",
+                "repository": OFFICIAL_REPOSITORY, "commit": t.wanted, "sourceVersion": "1.1.0",
                 "version": "0.0.1", "identity": {}, "bundleEnv": {}}, "packages": []}
     monkeypatch.setattr(source_releases, '_resolve_channel',
                         lambda name, repository: ChannelResolution(record, record, manifest))
@@ -376,36 +345,24 @@ def test_stable_zip_consumes_the_same_commit_through_the_real_swap(update_tree, 
         server.server_close()
 
 
-@pytest.mark.parametrize('sync_phase', ['origin', 'early', 'late', 'late-other-branch'])
 @pytest.mark.parametrize('dirty', [False, True])
-def test_update_syntax_failure_restores_pre_update_head(update_tree, monkeypatch, capsys, sync_phase, dirty):
+def test_update_syntax_failure_restores_pre_update_head(update_tree, monkeypatch, capsys, dirty):
+    """A syntax error in pulled code rolls back to the pre-update HEAD.
+
+    Origin-only: Avunel does not track upstream Hermes (K9), so the former
+    ``early`` / ``late`` / ``late-other-branch`` upstream phases no longer exist.
+    """
     t = update_tree
     git(t.clone, 'checkout', '-q', 'main')
     t.args.channel = 'main'
     monkeypatch.setattr(cli_main, '_sync_with_upstream_if_needed', _sync_with_upstream_if_needed)
-    if sync_phase != 'origin':
-        upstream = t.origin.parent / 'upstream'
-        git(t.origin.parent, 'clone', '-q', str(t.origin), str(upstream))
-        git(t.clone, 'remote', 'add', 'upstream', str(upstream))
-        if sync_phase == 'early':
-            git(t.origin, 'reset', '--hard', t.base)
-        remote = upstream
-    else:
-        remote = t.origin
+    remote = t.origin
     bad = remote / 'hermes_cli' / 'config.py'
     bad.parent.mkdir()
     bad.write_text('def broken(:\n', encoding='utf-8')
     git(remote, 'add', 'hermes_cli/config.py')
     git(remote, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'invalid syntax')
-    unexpected_head = git(remote, 'rev-parse', 'HEAD')
-    if sync_phase == 'late-other-branch':
-        def switch_after_sync(*args, **kwargs):
-            result = _sync_with_upstream_if_needed(*args, **kwargs)
-            git(t.clone, 'checkout', '-qb', 'unexpected')
-            return result
-
-        monkeypatch.setattr(cli_main, '_sync_with_upstream_if_needed', switch_after_sync)
     local = t.clone / '.gitignore'
     staged = local.read_bytes() + b'# staged local work\n'
     unstaged = staged + b'# unstaged local work\n'
@@ -419,16 +376,9 @@ def test_update_syntax_failure_restores_pre_update_head(update_tree, monkeypatch
     assert error.value.code == 1
     assert not t.requests
     output = capsys.readouterr().out
-    if sync_phase == 'late-other-branch':
-        assert git(t.clone, 'rev-parse', 'unexpected') == unexpected_head
-        assert git(t.clone, 'branch', '--show-current') == 'unexpected'
-        assert (t.clone / 'hermes_cli/config.py').read_bytes() == bad.read_bytes()
-        assert "checkout is on 'unexpected'" in output
-        assert 'Rolling back' not in output
-    else:
-        assert 'Pulled code has a syntax error' in output
-        assert git(t.clone, 'rev-parse', 'HEAD') == t.base
-        assert not (t.clone / 'hermes_cli' / 'config.py').exists()
+    assert 'Pulled code has a syntax error' in output
+    assert git(t.clone, 'rev-parse', 'HEAD') == t.base
+    assert not (t.clone / 'hermes_cli' / 'config.py').exists()
     assert not git(t.clone, 'status', '--porcelain')
     assert bool(git(t.clone, 'stash', 'list')) is dirty
     if dirty:

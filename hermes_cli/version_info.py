@@ -428,35 +428,39 @@ def format_avunel_version_lines() -> list[str]:
     Example::
 
         Avunel 0.1.0
-        Based on Hermes v0.21.5
-        Upstream: 27c02f63
-        Local: 1982d544 (+11 carried commits)
-        Build: dirty · 2026.9.24
+        Base: Hermes v0.21.5
+        Origin: 91db0a05
+        Local: 91db0a05 (+0 commits)
+        Build: 2026.9.24
 
     Fields whose value Git could not supply are omitted (no fabricated zeros);
-    a genuinely unknown upstream shows ``Upstream: unknown`` rather than a blank
-    that reads as "none carried". The date is the HEAD commit date, labelled
-    ``Build`` only when the checkout is clean; a dirty tree prints the date
-    without the ``Build`` label so a source date is never mislabelled as a build.
+    a genuinely unresolvable origin shows ``Origin: unknown`` rather than a
+    blank that reads as "none carried". ``Origin`` points at the Avunel repo's
+    own tracking ref (``origin/main`` on ``avunel-agent``), not at NousResearch:
+    Avunel does not track upstream Hermes. ``Base:`` names the historical
+    Hermes release the fork started from, for reference only — it is not an
+    update channel. The date is the HEAD commit date, labelled ``Build`` only
+    when the checkout is clean; a dirty tree prints the date without the
+    ``Build`` label so a source date is never mislabelled as a build.
     """
     from hermes_constants import PRODUCT_NAME
 
     p = get_avunel_provenance()
     lines = [f"{PRODUCT_NAME} {p.avunel_version}"]
     if p.hermes_version:
-        lines.append(f"Based on Hermes v{p.hermes_version}")
+        lines.append(f"Base: Hermes v{p.hermes_version}")
 
     if p.upstream_sha:
-        lines.append(f"Upstream: {p.upstream_sha}")
+        lines.append(f"Origin: {p.upstream_sha}")
     elif p.local_sha:
-        # A checkout with no resolvable upstream base: say so explicitly.
-        lines.append("Upstream: unknown")
+        # A checkout with no resolvable origin ref: say so explicitly.
+        lines.append("Origin: unknown")
 
     if p.local_sha:
         local = p.local_sha
         if p.carried_commits is not None:
             plural = "commit" if p.carried_commits == 1 else "commits"
-            local += f" (+{p.carried_commits} carried {plural})"
+            local += f" (+{p.carried_commits} {plural})"
         lines.append(f"Local: {local}")
 
     date = None

@@ -113,7 +113,7 @@ def test_dirty_reflects_uncommitted_changes(fork):
 
 
 def test_missing_upstream_reports_unknown_not_zero(tmp_path, monkeypatch):
-    """No upstream base → Upstream: unknown, and carried is None (never a fake 0)."""
+    """No resolvable origin → Origin: unknown, and carried is None (never a fake 0)."""
     repo = tmp_path / "solo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
@@ -125,8 +125,8 @@ def test_missing_upstream_reports_unknown_not_zero(tmp_path, monkeypatch):
     assert p.upstream_sha is None
     assert p.carried_commits is None
     lines = version_info.format_avunel_version_lines()
-    assert "Upstream: unknown" in lines
-    assert not any("carried" in line for line in lines)
+    assert "Origin: unknown" in lines
+    assert not any("commits" in line for line in lines)
     version_info._reset_version_info_cache()
 
 
@@ -144,20 +144,20 @@ def test_git_unavailable_degrades_safely(fork, monkeypatch):
 def test_display_block_shape(fork):
     lines = version_info.format_avunel_version_lines()
     assert lines[0] == "Avunel 0.1.0"
-    assert any(l.startswith("Based on Hermes v") for l in lines)
-    assert any(l.startswith("Upstream: ") for l in lines)
-    assert any(l.startswith("Local: ") and "carried" in l for l in lines)
+    assert any(l.startswith("Base: Hermes v") for l in lines)
+    assert any(l.startswith("Origin: ") for l in lines)
+    assert any(l.startswith("Local: ") and "commits" in l for l in lines)
 
 
 def test_carried_singular_wording(fork):
-    """Carried count follows Git exactly; the singular case reads '(+1 carried commit)'."""
+    """Carried count follows Git exactly; the singular case reads '(+1 commit)'."""
     fork_dir, base_sha, _local, _carried = fork
     # Collapse the fork to exactly one commit on top of the upstream base.
     _git(fork_dir, "reset", "-q", "--hard", base_sha)
     one = _commit(fork_dir, "solo", ts=1_700_000_600)
     version_info._reset_version_info_cache()
     lines = version_info.format_avunel_version_lines()
-    assert f"Local: {one[:8]} (+1 carried commit)" in lines
+    assert f"Local: {one[:8]} (+1 commit)" in lines
 
 
 def test_date_uses_head_commit_date_not_wall_clock(fork):

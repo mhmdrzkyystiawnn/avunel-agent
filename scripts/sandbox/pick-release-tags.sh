@@ -24,8 +24,12 @@
 # checkout has no tags and this exits non-zero rather than silently emitting an
 # empty matrix.
 #
-# Only vYYYY.M.D[.N] release tags are considered; the repo also carries
-# backup/* and one-off tags that are not releases.
+# Only semver release tags (vMAJOR.MINOR.PATCH[.N]) are considered; the repo
+# also carries canary, backup/* and one-off tags that are not releases. The
+# major component is not pinned to four digits: CalVer releases (v2026.4.8) and
+# SemVer releases (v0.1.0) are both release tags, and pick_tags.py — the sibling
+# used by the release-mode path — accepts both. A four-digit-only pattern here
+# made the two pickers disagree about what a release is.
 
 set -euo pipefail
 
@@ -68,7 +72,7 @@ fi
 # lexicographic sort gets wrong.
 mapfile -t tags < <(
   git -C "$REPO" tag --list 'v*' \
-    | grep -E '^v[0-9]{4}\.[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$' \
     | sort -V
 )
 

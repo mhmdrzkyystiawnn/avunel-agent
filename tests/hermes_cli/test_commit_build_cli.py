@@ -59,12 +59,12 @@ finally:
     assert "AUDIT=[]" in result.stdout, result.stdout + result.stderr
     if args == ["--version"]:
         # The Avunel --version block now reports `Avunel 0.1.0` plus
-        # `Based on Hermes v1.2.3` (baseVersion, not the +g<sha> display
+        # `Base: Hermes v1.2.3` (baseVersion, not the +g<sha> display
         # string). The install-stamp `source: commit-build` no longer
         # surfaces in --version output (it lived in the pre-rebrand
         # version line); what matters for this test is the absence of
         # updater side effects, not the literal "commit-build" text.
-        assert "Based on Hermes v1.2.3" in result.stdout
+        assert "Base: Hermes v1.2.3" in result.stdout
     else:
         assert MESSAGE in result.stdout
         assert "Manage updates from within the desktop app" not in result.stdout

@@ -17,6 +17,25 @@ const execute: typeof execFile.__promisify__ = promisify(execFile)
 const repository: string = path.resolve(import.meta.dirname, '../../../..')
 const python: string = process.env.HERMES_PYTHON || 'python3'
 
+/**
+ * The repository this installation resolves channels against.
+ *
+ * Read from the Python module rather than spelled here: the source adapter only
+ * answers the legacy pointer path for OFFICIAL_REPOSITORY, and the desktop
+ * channel fixtures must name the same repository the checker treats as its own.
+ * Hardcoding the slug made these fixtures stop matching the moment the fork
+ * stopped calling itself NousResearch/hermes-agent.
+ */
+const OFFICIAL_REPOSITORY: string = execFileSync(
+  python,
+  [
+    '-c',
+    'import sys; sys.path.insert(0, sys.argv[1]); from hermes_cli.source_releases import OFFICIAL_REPOSITORY; print(OFFICIAL_REPOSITORY)',
+    path.resolve(import.meta.dirname, '../../../..')
+  ],
+  { encoding: 'utf8' }
+).trim()
+
 function buildId(channel: 'stable' | 'canary'): string {
   return (channel === 'stable' ? 'a' : 'b').repeat(32)
 }
@@ -109,7 +128,7 @@ function channelRecord(channel: 'stable' | 'canary', sequence: number): FixtureR
   return {
     schema: 1,
     name: channel,
-    repository: 'NousResearch/hermes-agent',
+    repository: OFFICIAL_REPOSITORY,
     policy: channel === 'stable' ? 'stable-release' : 'canary-release',
     state: 'active',
     revision: 1,
@@ -159,7 +178,7 @@ function buildManifest(
       schema: 1,
       buildId: id,
       channel,
-      repository: 'NousResearch/hermes-agent',
+      repository: OFFICIAL_REPOSITORY,
       commit: sha,
       sourceVersion: tag.replace(/^v/, '').split('+')[0],
       releaseTag: tag,
@@ -257,12 +276,12 @@ it('carries each install channel from Python publication checks into the source 
         })
       )
       responses.set(`/${manifestKey(channel)}`, body)
-      responses.set(`/repos/NousResearch/hermes-agent/releases/tags/${tags[channel]}`, {
+      responses.set(`/repos/${OFFICIAL_REPOSITORY}/releases/tags/${tags[channel]}`, {
         tag_name: tags[channel],
         draft: false,
         prerelease: channel === 'canary'
       })
-      responses.set(`/repos/NousResearch/hermes-agent/commits/${tags[channel]}`, { sha })
+      responses.set(`/repos/${OFFICIAL_REPOSITORY}/commits/${tags[channel]}`, { sha })
     }
 
     responses.set('/releases/stable/release-candidates.json', { tag: tags.stable, commit: commits[1] })
@@ -272,7 +291,7 @@ it('carries each install channel from Python publication checks into the source 
       JSON.stringify({
         schema: 1,
         name: 'main',
-        repository: 'NousResearch/hermes-agent',
+        repository: OFFICIAL_REPOSITORY,
         policy: 'source-branch',
         state: 'active',
         revision: 1,

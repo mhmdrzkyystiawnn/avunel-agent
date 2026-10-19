@@ -63,8 +63,8 @@ def build_catalog() -> dict:
         "version": CATALOG_VERSION,
         "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "metadata": {
-            "source": "hermes-agent repo",
-            "docs": "https://hermes-agent.nousresearch.com/docs/reference/model-catalog",
+            "source": "avunel-agent repo",
+            "docs": "https://github.com/mhmdrzkyystiawnn/avunel-agent",
         },
         "providers": {
             "openrouter": {

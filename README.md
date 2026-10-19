@@ -74,13 +74,13 @@ Both live launchers take the same arguments as the `hermes` command (`avunel --h
 ```bash
 $ avunel --version
 Avunel 0.1.0
-Based on Hermes v0.21.5
-Base: 27c02f63
-Local: 378ac235 (+15 commits)
-Build: dirty · 2026.10.10
+Base: Hermes v0.21.5
+Origin: 91db0a05
+Local: 91db0a05 (+0 commits)
+Build: 2026.10.18
 ```
 
-Avunel's version (`0.1.0`) is its own and does not inherit Hermes releases. The lines below it are provenance: the Hermes commit the fork started from, the local commit, how many commits Avunel carries since that base, and the working-tree date. **These are historical reference points, not an update channel** — Avunel does not pull from upstream. If Git is unavailable, those fields report `unknown` rather than a fake value.
+Avunel's version (`0.1.0`) is its own and does not inherit Hermes releases. The lines below it are provenance: `Origin:` is the Avunel repo's own tracking ref (`origin/main` on `avunel-agent`), `Local:` is the working commit, and the number in parentheses is how many commits sit on top of that origin. `Base:` names the historical Hermes release the fork started from — reference only, **not** an update channel. Avunel does not pull from upstream. If Git is unavailable, those fields report `unknown` rather than a fake value.
 
 ## Framework reference
 

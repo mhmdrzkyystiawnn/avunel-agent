@@ -605,12 +605,9 @@ def _run_debug_share_nous(args, *, log_lines: int, redact: bool) -> None:
           else f"  (no view URL returned; upload id: {res.get('id', '?')})")
     print(f"\n⏱  Auto-deletes at {expires_at} (14-day retention)." if expires_at
           else "\n⏱  Auto-deletes after 14 days.")
-    print("\nShare this private link with the Nous team — only Nous staff "
-          "(via Google login) can open it.\n"
+    print("\nShare this private link — anyone with the URL can open it.\n"
           "\nPick up the discussion in:\n"
-          "  GitHub Issues        https://github.com/NousResearch/hermes-agent/issues\n"
-          "  Nous Portal Support  https://portal.nousresearch.com/help\n"
-          "  Discord              https://discord.gg/NousResearch")
+          "  GitHub Issues        https://github.com/mhmdrzkyystiawnn/avunel-agent/issues")
 
 
 def run_debug_delete(args):
