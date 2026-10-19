@@ -100,11 +100,12 @@ def releases(tmp_path, monkeypatch, request):
 
     monkeypatch.setattr(urllib.request, "urlopen", local_urlopen)
     # This server stands in for the channel host and does serve this repository's
-    # records, so the host-ownership guard must see it as the configured host
-    # rather than the production one. urlopen is redirected below regardless of
-    # the host in the URL, so repointing _PUBLIC_BASE only informs the guard.
+    # records. _release_pointer reads the host directly and consults the publisher
+    # list rather than the URL, so declare this fixture's repository as published
+    # here — that is exactly what the loopback server does below.
     from hermes_cli import source_releases as _sr
     monkeypatch.setattr(_sr, "_PUBLIC_BASE", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setattr(_sr, "_CHANNEL_HOST_PUBLISHERS", frozenset({REPO.casefold()}))
     # Legacy pointer tests below retain their HTTP/tag boundary. New CLI callers
     # consume the protocol reader, whose complete schema is tested independently.
     from hermes_cli import source_releases

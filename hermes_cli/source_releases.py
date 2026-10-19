@@ -14,30 +14,27 @@ from hermes_cli.update_channel import STABLE_TAG_RE, is_canary_tag
 
 logger = logging.getLogger(__name__)
 # The asset host the channel reader queries. Avunel publishes no channel records
-# anywhere yet, so this host is never a valid source for this repository;
-# `_channel_host_serves` below is what enforces that. Repointing it at an Avunel
+# anywhere yet, so this host carries another project's records; validate_record
+# catches that mismatch for the ChannelReader path and _channel_host_serves
+# catches it for the legacy _release_pointer path. Repointing this at an Avunel
 # host is deferred until such a host actually serves records.
 _PUBLIC_BASE = "https://hermes-assets.nousresearch.com"
 OFFICIAL_REPOSITORY = "mhmdrzkyystiawnn/avunel-agent"
 
-# The one host known to publish channel records, and the repositories it
-# publishes them for. Avunel is deliberately absent: it has no records there, and
-# reading that host anyway is how one project inherits another's release pointer.
-_CHANNEL_HOST = "https://hermes-assets.nousresearch.com"
+# The repositories whose channel records are actually published on the asset
+# host above. Avunel is deliberately absent: it has no records there, and
+# _release_pointer reads that host directly (bypassing ChannelReader, which would
+# otherwise catch the mismatch in validate_record). Without this list the legacy
+# pointer path would hand Avunel the Hermes stable tag.
 _CHANNEL_HOST_PUBLISHERS: frozenset[str] = frozenset({"nousresearch/hermes-agent"})
 
 
 def _channel_host_serves(repository: str) -> bool:
-    """Whether the configured channel host publishes records for ``repository``.
+    """Whether the asset host publishes channel records for ``repository``.
 
-    Fails closed, but only for the host this guard knows about. A caller that
-    repoints ``_PUBLIC_BASE`` (a test server, a future Avunel host) is trusted to
-    have pointed it at a host that serves what it asks for — the guard exists to
-    stop the production host from answering for a project it does not publish,
-    not to second-guess an explicitly redirected one.
+    Fails closed. Used only by ``_release_pointer``, the one path that reads the
+    host without going through ChannelReader's repository check.
     """
-    if _PUBLIC_BASE != _CHANNEL_HOST:
-        return True
     return repository.strip().casefold() in _CHANNEL_HOST_PUBLISHERS
 
 
@@ -93,15 +90,15 @@ def _resolve_channel(name: str, repository: str):
     GitHub fallback is allowed when a record is unavailable; the one exception
     is an unpublished ``main`` record, which resolves to the main branch.
 
-    A repository whose records are not published on this host is reported as a
-    missing channel — ``ChannelNotFound``, not ``ChannelError`` — so ``main``
-    still resolves to its branch while ``stable``/``canary`` fail closed with
-    "not found" instead of being handed another project's pointer.
+    No repository-vs-host check happens here: ChannelReader.read_record already
+    passes ``repository`` into validate_record, so a host that answers with
+    another project's record raises "Channel repository authority mismatch".
+    Re-checking the host up front would duplicate that and, worse, could not tell
+    a redirected transport (a test server behind urlopen, a mirror) from the
+    production host.
     """
-    from hermes_cli.release_channels import ChannelNotFound, ChannelReader
+    from hermes_cli.release_channels import ChannelReader
 
-    if not _channel_host_serves(repository):
-        raise ChannelNotFound(f"No channel records published for {repository}")
     return ChannelReader(_PUBLIC_BASE, repository=repository).resolve(name)
 
 
