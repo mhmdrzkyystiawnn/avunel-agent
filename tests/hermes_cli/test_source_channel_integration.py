@@ -13,6 +13,11 @@ from hermes_cli.subcommands.update import build_update_parser
 from hermes_cli.update_channel import channel_record, set_install_channel
 from hermes_cli.config import require_readable_config_before_write
 
+# The repository this installation resolves against. Read from the module so
+# the fixtures name whatever repository the source adapter treats as its own,
+# rather than a hardcoded upstream slug.
+OFFICIAL_REPOSITORY = source_releases.OFFICIAL_REPOSITORY
+
 # These tests model channel archives and the reader's own transport.
 pytestmark = pytest.mark.real_release_channels
 
@@ -56,13 +61,13 @@ def source(tmp_path, monkeypatch):
     return SimpleNamespace(home=home, origin=origin, root=checkout, commits=commits, parser=parser)
 
 
-def record(name, *, repository="NousResearch/hermes-agent", state="active", destination=None):
+def record(name, *, repository=OFFICIAL_REPOSITORY, state="active", destination=None):
     return {"schema": 1, "name": name, "repository": repository, "policy": "preview",
             "state": state, "identity": {}, "nextSequence": 2, "head": None,
             **({"destination": destination} if destination else {})}
 
 
-def reader_result(source, name, destination=None, repository="NousResearch/hermes-agent"):
+def reader_result(source, name, destination=None, repository=OFFICIAL_REPOSITORY):
     requested = record(name, repository=repository,
                        state="retired" if destination else "active", destination=destination)
     terminal = record(destination or name, repository=repository)
@@ -237,7 +242,7 @@ def publish_channel_build(channel_archive, name, build_id, commit, *, sequence=1
                 "windowsExecutableName": "Fixture"}
     version = f"1.2.{sequence}" if stable else f"0.0.{sequence}"
     request = {"schema": 1, "channel": name, "buildId": build_id, "sequence": sequence,
-               "repository": "NousResearch/hermes-agent", "commit": commit,
+               "repository": OFFICIAL_REPOSITORY, "commit": commit,
                "sourceVersion": f"1.2.{sequence}", "version": version, "windowsVersion": version + ".0",
                "identity": identity, "bundleEnv": {}, "publicBase": base}
     if stable:
@@ -394,7 +399,7 @@ def test_tagless_zip_apply_uses_pinned_source_archive(source, monkeypatch, dirty
         assert (source.root / "notes.txt").read_text() == "do not remove"
     else:
         update_cmd._cmd_update_impl(source.parser.parse_args(["update"]), False)
-        assert urls == [f"https://github.com/NousResearch/hermes-agent/archive/{source.commits[1]}.zip"]
+        assert urls == [f"https://github.com/{OFFICIAL_REPOSITORY}/archive/{source.commits[1]}.zip"]
         assert (source.root / "content.txt").read_text() == "published"
         assert completed[0]["expected_sha"] == source.commits[1]
         assert completed[0]["channel_retirement"]["destination"] == "stable"
