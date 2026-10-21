@@ -34,13 +34,35 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 from agent.message_metadata import mint_uid
 from agent.message_sanitization import coalesce_tool_call_id
-from blob_store import (
-    BlobStore,
-    load_api_content,
-    store_api_content,
-    offload_payload_if_needed,
-    restore_payload_fields,
-)
+try:
+    from blob_store import (
+        BlobStore,
+        load_api_content,
+        store_api_content,
+        offload_payload_if_needed,
+        restore_payload_fields,
+    )
+except ImportError:  # pragma: no cover
+    BlobStore = None  # type: ignore[assignment, misc]
+
+    def load_api_content(ref: str, blob_store: Any = None) -> Optional[str]:  # type: ignore[misc]
+        return None
+
+    def store_api_content(content: Optional[str], blob_store: Any = None) -> Optional[str]:  # type: ignore[misc]
+        return None
+
+    def offload_payload_if_needed(  # type: ignore[misc]
+        payload: Dict[str, Any],
+        blob_store: Any = None,
+        threshold_bytes: int = 60000,
+    ) -> Dict[str, Any]:
+        return payload
+
+    def restore_payload_fields(  # type: ignore[misc]
+        payload: Dict[str, Any],
+        blob_store: Any = None,
+    ) -> Dict[str, Any]:
+        return payload
 from hermes_state import SessionDB
 import hermes_state_events
 from hermes_state_events import EventStore
