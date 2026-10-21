@@ -386,7 +386,9 @@ class SessionMessagesMixin:
         api_content: Optional[str] = None, display_kind: Optional[str] = None,
         display_metadata: Optional[Dict[str, Any]] = None, compression_lock_holder: Optional[str] = None,
         turn_lease_holder: Optional[str] = None, turn_lease_ttl_seconds: float = 300.0,
-        message_uid: Optional[str] = None) -> int:
+        message_uid: Optional[str] = None,
+        tool_call_uids: Any = None,
+        tool_call_uid: Optional[str] = None) -> int:
         """Append one message; returns the row id and bumps the session counters. ``platform_message_id``:
         the platform's own id. ``api_content``: byte-fidelity sidecar, the exact string sent to the API when
         it differed from ``content``, stored as sent except lone surrogates. ``message_uid``: the id a caller
