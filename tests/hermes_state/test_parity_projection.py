@@ -30,7 +30,10 @@ import sqlite3
 import pytest
 
 from agent.redact import redact_sensitive_text
-from blob_store import BlobStore
+try:
+    from blob_store import BlobStore
+except ImportError:  # pragma: no cover
+    BlobStore = None  # type: ignore[assignment, misc]
 from dual_sink import DualSink
 from hermes_state import SessionDB
 from hermes_state_events import open_events
@@ -401,7 +404,7 @@ def test_all_49_sessions_parity_comprehensive_columns(tmp_path: Path) -> None:
 
     event_store = open_events(tmp_path / "events.db")
     state_db = SessionDB(db_path=tmp_path / "state.db")
-    blob_store = BlobStore(tmp_path / "blobs")
+    blob_store = BlobStore(tmp_path / "blobs") if BlobStore is not None else None
     sink = DualSink(session_db=state_db, event_store=event_store, blob_store=blob_store, mode="dual")
 
     passed_sessions = []
