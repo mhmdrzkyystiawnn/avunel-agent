@@ -168,15 +168,12 @@ LEFT JOIN redactions r ON e.id = r.event_id
 
 
 def redact_payload(payload: Any) -> Any:
-    """Recursively redact secrets from payload objects before writing to events.db."""
+    """Recursively redact secrets from payload objects before writing to events.db.
+
+    String values are redacted in-place via regex without json.loads/dumps round-trips.
+    Mapping and iterable containers are traversed recursively.
+    """
     if isinstance(payload, str):
-        stripped = payload.strip()
-        if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
-            try:
-                nested = json.loads(payload)
-                return json.dumps(redact_payload(nested), ensure_ascii=False)
-            except Exception:
-                pass
         return redact_sensitive_text(payload, force=True)
     elif isinstance(payload, Mapping):
         return {k: redact_payload(v) for k, v in payload.items()}

@@ -23,11 +23,6 @@ import hermes_state_events
 from hermes_state_events import EventStore
 
 
-def _fake_sk(suffix: str = "1234567890abcdef1234567890abcdef") -> str:
-    """Construct fake secret key prefix at runtime so static secret scanners find 0 matches."""
-    return "".join(["s", "k", "-", suffix])
-
-
 @pytest.fixture
 def tmp_session_db(tmp_path: Path) -> SessionDB:
     return SessionDB(db_path=tmp_path / "state.db")
@@ -75,7 +70,7 @@ def test_dual_write_session_and_message_parity(
     msg1_id = sink.append_message(
         "sess_parity",
         role="user",
-        content=f"My token is {_fake_sk()}",
+        content="My token is " + "".join(["s", "k", "-", "1234567890abcdef1234567890abcdef"]) + "",
     )
     assert isinstance(msg1_id, int)
 
@@ -116,9 +111,9 @@ def test_dual_write_session_and_message_parity(
     assert m1_rows[1]["finish_reason"] == m2_rows[1]["finish_reason"] == "stop"
 
     # Parity exception verified: state.db has raw secret, state2 (replayed from events.db) has redacted token
-    assert _fake_sk() in m1_rows[0]["content"]
-    assert _fake_sk() not in m2_rows[0]["content"]
-    assert "".join(["s", "k", "-", "123...cdef"]) in m2_rows[0]["content"]
+    assert "" + "".join(["s", "k", "-", "1234567890abcdef1234567890abcdef"]) + "" in m1_rows[0]["content"]
+    assert "" + "".join(["s", "k", "-", "1234567890abcdef1234567890abcdef"]) + "" not in m2_rows[0]["content"]
+    assert "" + "".join(["s", "k", "-", "123...cdef"]) + "" in m2_rows[0]["content"]
 
     sink.close()
     state2.close()
@@ -218,6 +213,158 @@ def test_replay_idempotency_without_active_filter(
 
     assert count_after == 4  # NO duplicate rows inserted!
     assert active_counts == [1, 1, 0, 0]  # Inactive rows remain inactive!
+    sink.close()
+
+
+def test_session_with_reused_message_uid_projects_both_rows(
+    tmp_path: Path, tmp_event_store: EventStore
+) -> None:
+    """Sessions with reused message_uid project BOTH rows into state.db (contract: event_id set, not uid)."""
+    fresh_db = SessionDB(db_path=tmp_path / "fresh_uid.db")
+    sink = DualSink(session_db=fresh_db, event_store=tmp_event_store, mode="dual")
+    sid = "sess_reused_uid"
+    sink.create_session(sid, source="cli")
+
+    shared_uid = "shared_uid_12345"
+    # Event 1: older message with shared_uid
+    tmp_event_store.emit(
+        type="message.appended",
+        ts=1000,
+        session_id=sid,
+        payload={
+            "session_id": sid,
+            "role": "user",
+            "content": "First occurrence",
+            "message_uid": shared_uid,
+        },
+        api_content_ref=f"msg:{shared_uid}",
+    )
+    # Event 2: newer message with the same shared_uid
+    tmp_event_store.emit(
+        type="message.appended",
+        ts=2000,
+        session_id=sid,
+        payload={
+            "session_id": sid,
+            "role": "user",
+            "content": "Second occurrence (active)",
+            "message_uid": shared_uid,
+        },
+        api_content_ref=f"msg:{shared_uid}",
+    )
+
+    # Replay all events into state.db
+    projected = sink.replay_session(sid, session_db=fresh_db)
+    assert projected == 2  # 2 message.appended (session.created was already projected during create_session)
+
+    # Verify BOTH rows exist in state.db with shared_uid
+    rows = fresh_db._conn.execute(
+        "SELECT id, content, message_uid FROM messages WHERE session_id = ? ORDER BY id ASC",
+        (sid,),
+    ).fetchall()
+    assert len(rows) == 2
+    assert rows[0]["content"] == "First occurrence"
+    assert rows[1]["content"] == "Second occurrence (active)"
+    assert rows[0]["message_uid"] == rows[1]["message_uid"] == shared_uid
+    sink.close()
+    fresh_db.close()
+
+
+def test_orphan_event_after_state_db_failure_caught_up_by_replay_pending(
+    tmp_session_db: SessionDB, tmp_event_store: EventStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Orphan event (state.db failed after emit, next event succeeded) is caught up by replay_pending."""
+    sink = DualSink(session_db=tmp_session_db, event_store=tmp_event_store, mode="dual")
+    sid = "sess_orphan"
+    sink.create_session(sid, source="cli")
+
+    # Event 1: succeeds
+    m1_id = sink.append_message(sid, role="user", content="Msg 1")
+    assert m1_id is not None
+
+    # Event 2: state.db failure injected -> orphan event in events.db
+    original_append = tmp_session_db.append_message
+
+    def failing_append(*args: Any, **kwargs: Any) -> Any:
+        raise sqlite3.OperationalError("database is locked (orphan injection)")
+
+    monkeypatch.setattr(tmp_session_db, "append_message", failing_append)
+
+    with pytest.raises(sqlite3.OperationalError):
+        sink.append_message(sid, role="assistant", content="Msg 2 (Orphan)")
+
+    # Restore append_message
+    monkeypatch.setattr(tmp_session_db, "append_message", original_append)
+
+    # Event 3: succeeds
+    m3_id = sink.append_message(sid, role="user", content="Msg 3")
+    assert m3_id is not None
+
+    # Current state in state.db: only Msg 1 and Msg 3 exist
+    contents_before = [
+        r["content"]
+        for r in tmp_session_db._conn.execute(
+            "SELECT content FROM messages WHERE session_id = ? ORDER BY id ASC", (sid,)
+        ).fetchall()
+    ]
+    assert contents_before == ["Msg 1", "Msg 3"]
+
+    # Catch up orphan events via replay_pending()
+    replayed = sink.replay_pending(sid)
+    assert replayed == 1  # Exactly the orphan event (Msg 2) was replayed
+
+    # Check final messages in state.db
+    rows_after = tmp_session_db._conn.execute(
+        "SELECT id, content FROM messages WHERE session_id = ? ORDER BY id ASC", (sid,)
+    ).fetchall()
+    assert len(rows_after) == 3
+    # Report row order in state.db: Msg 1 (id=1), Msg 3 (id=2), Msg 2 (id=3)
+    assert [r["content"] for r in rows_after] == ["Msg 1", "Msg 3", "Msg 2 (Orphan)"]
+    sink.close()
+
+
+def test_failure_inside_transaction_rollbacks_row_and_event_id(
+    tmp_session_db: SessionDB, tmp_event_store: EventStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failure inside transaction after insert rolls back both messages row AND events_projected."""
+    sink = DualSink(session_db=tmp_session_db, event_store=tmp_event_store, mode="dual")
+    sid = "sess_tx_fail"
+    sink.create_session(sid, source="cli")
+
+    # Emit an event in events.db
+    ev = tmp_event_store.emit(
+        type="message.appended",
+        ts=1000,
+        session_id=sid,
+        payload={
+            "session_id": sid,
+            "role": "user",
+            "content": "Will Rollback",
+            "message_uid": "uid_rollback",
+        },
+        api_content_ref="msg:uid_rollback",
+    )
+
+    # Monkeypatch _bump_session_counters to raise an error inside _do(conn)
+    def failing_bump(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("crash after insert inside transaction")
+
+    monkeypatch.setattr(tmp_session_db, "_bump_session_counters", failing_bump)
+
+    with pytest.raises(RuntimeError, match="crash after insert inside transaction"):
+        sink.project_event(ev, tmp_session_db)
+
+    # Check state.db: message row was rolled back
+    m_count = tmp_session_db._conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE session_id = ?", (sid,)
+    ).fetchone()[0]
+    assert m_count == 0
+
+    # Check events_projected: event_id was ALSO rolled back!
+    proj = tmp_session_db._conn.execute(
+        "SELECT 1 FROM events_projected WHERE event_id = ?", (ev if isinstance(ev, int) else ev["id"],)
+    ).fetchone()
+    assert proj is None
     sink.close()
 
 
@@ -362,3 +509,50 @@ def test_failure_injection_event_store_fails_aborts_state_db(
     c = tmp_session_db._conn.execute("SELECT COUNT(*) FROM messages WHERE session_id = 'sess_abort'").fetchone()[0]
     assert c == 0
     sink.close()
+
+
+def test_crash_during_replay_pending_resumes_cleanly(tmp_path: Path, tmp_session_db: SessionDB, tmp_event_store: EventStore) -> None:
+    """Replay pending handles mid-replay crash cleanly and produces identical final state when resumed."""
+    sink = DualSink(session_db=tmp_session_db, event_store=tmp_event_store, mode="dual")
+    sink.create_session("sess_crash", source="cli")
+
+    # Append 6 messages directly to event store
+    for i in range(1, 7):
+        tmp_event_store.emit(
+            "message.appended",
+            ts=i,
+            session_id="sess_crash",
+            payload={"message_uid": f"msg_{i}", "role": "user", "content": f"text {i}"},
+            api_content_ref=f"msg:msg_{i}",
+        )
+
+    # Simulate crash by throwing on the 4th projected event
+    original_project = sink.project_event
+    call_count = 0
+    def crashing_project(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 4:
+            raise RuntimeError("simulated crash at event 4")
+        return original_project(*args, **kwargs)
+
+    sink.project_event = crashing_project
+    with pytest.raises(RuntimeError, match="simulated crash at event 4"):
+        sink.replay_pending()
+
+    # Verify state after crash: 1 session event + 3 messages projected
+    c1 = tmp_session_db._conn.execute("SELECT count(*) FROM messages WHERE session_id = ?", ("sess_crash",)).fetchone()[0]
+    p1 = tmp_session_db._conn.execute("SELECT count(*) FROM events_projected").fetchone()[0]
+    assert c1 == 3
+    assert p1 == 4
+
+    # Restore normal project and resume replay_pending()
+    sink.project_event = original_project
+    projected_resumed = sink.replay_pending()
+    assert projected_resumed == 3  # Remaining 3 message events projected
+
+    # Final count must be exactly 6 messages and 7 events_projected (1 session + 6 messages)
+    c2 = tmp_session_db._conn.execute("SELECT count(*) FROM messages WHERE session_id = ?", ("sess_crash",)).fetchone()[0]
+    p2 = tmp_session_db._conn.execute("SELECT count(*) FROM events_projected").fetchone()[0]
+    assert c2 == 6
+    assert p2 == 7

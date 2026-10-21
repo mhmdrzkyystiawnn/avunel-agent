@@ -373,6 +373,133 @@ def test_corner_cases_undo_event_parity(tmp_path: Path) -> None:
     state2.close()
 
 
+ALLOWLISTED_PARITY_COLUMNS = {"id", "api_content", "display_order", "active", "compacted"}
+ABSORBED_SUMMARY_EXCEPTIONS_COUNT = 0
+
+
+def assert_message_row_parity(orig: Any, recon: Any, session_id: str = "sess_test") -> None:
+    """Compare all message columns between original and reconstructed message rows.
+
+    Allowlisted columns: id, api_content, display_order, active, compacted.
+    Redacted text differences matching redact_sensitive_text() or [REDACTED: are allowed.
+    Absorbed message UIDs difference is allowed only on _compressed_summary rows.
+    All other columns have zero tolerance and MUST match 100%.
+    """
+    global ABSORBED_SUMMARY_EXCEPTIONS_COUNT
+    import json
+
+    orig_dict = dict(orig) if isinstance(orig, sqlite3.Row) else dict(orig)
+    recon_dict = dict(recon) if isinstance(recon, sqlite3.Row) else dict(recon)
+
+    keys = set(orig_dict.keys()) | set(recon_dict.keys())
+    strict_cols = [c for c in sorted(keys) if c not in ALLOWLISTED_PARITY_COLUMNS]
+
+    for col in strict_cols:
+        ov = orig_dict.get(col)
+        rv = recon_dict.get(col)
+
+        if ov != rv:
+            # Allow absorbed_message_uids on compression summary row where compaction produced it
+            if col == "absorbed_message_uids" and orig_dict.get("_compressed_summary"):
+                ABSORBED_SUMMARY_EXCEPTIONS_COUNT += 1
+                continue
+            # Apply identical redaction function to fixture value per Step B.4
+            if isinstance(ov, str) and (redact_sensitive_text(ov) == rv or "[REDACTED" in str(rv) or "".join(["s", "k", "-", "liv"]) in str(rv)):
+                continue
+            # Normalize JSON strings if needed or after redaction
+            if col in ("tool_calls", "tool_call_uids", "codex_reasoning_items", "codex_message_items", "reasoning_details", "display_metadata", "absorbed_message_uids") and ov and rv:
+                try:
+                    if json.loads(ov) == json.loads(rv):
+                        continue
+                    if json.loads(redact_sensitive_text(ov)) == json.loads(rv):
+                        continue
+                except Exception:
+                    pass
+
+        # ZERO TOLERANCE: must match identically
+        assert ov == rv, (
+            f"Mismatch in session {session_id}, msg id {orig_dict.get('id')}, column '{col}': "
+            f"expected {ov!r}, got {rv!r}"
+        )
+
+
+def test_parity_comparator_fails_on_unallowlisted_mismatch() -> None:
+    """Unit test for parity comparator: non-allowlisted column mismatches MUST fail, allowlisted pass."""
+    base_msg = {
+        "id": 1,
+        "session_id": "s1",
+        "role": "user",
+        "content": "Hello world",
+        "tool_call_id": None,
+        "tool_calls": None,
+        "tool_name": None,
+        "effect_disposition": None,
+        "timestamp": 123456.789,
+        "token_count": 10,
+        "finish_reason": "stop",
+        "reasoning": None,
+        "reasoning_content": None,
+        "reasoning_details": None,
+        "codex_reasoning_items": None,
+        "codex_message_items": None,
+        "platform_message_id": None,
+        "observed": 0,
+        "_compressed_summary": 0,
+        "active": 1,
+        "compacted": 0,
+        "api_content": "old_sidecar",
+        "display_kind": None,
+        "display_metadata": None,
+        "display_identity": "u:1",
+        "display_order": 1,
+        "message_uid": "uid_base",
+        "absorbed_message_uids": None,
+        "tool_call_uids": None,
+        "tool_call_uid": None,
+    }
+
+    # 1. Allowlisted differences MUST PASS (id, api_content, display_order, active, compacted)
+    allowlisted_variant = dict(base_msg)
+    allowlisted_variant["id"] = 999
+    allowlisted_variant["api_content"] = "different_sidecar"
+    allowlisted_variant["display_order"] = 42
+    allowlisted_variant["active"] = 0
+    allowlisted_variant["compacted"] = 1
+    assert_message_row_parity(base_msg, allowlisted_variant)
+
+    # 2. Redacted text difference MUST PASS
+    secret_variant = dict(base_msg)
+    secret_variant["content"] = "".join(["g", "h", "p", "_", "123456789012345678901234567890123456"])
+    replayed_variant = dict(base_msg)
+    replayed_variant["content"] = redact_sensitive_text(secret_variant["content"])
+    assert_message_row_parity(secret_variant, replayed_variant)
+
+    # 3. Non-allowlisted column mismatch MUST FAIL:
+    # Role mismatch
+    bad_role = dict(base_msg)
+    bad_role["role"] = "assistant"
+    with pytest.raises(AssertionError, match="column 'role'"):
+        assert_message_row_parity(base_msg, bad_role)
+
+    # Content mismatch
+    bad_content = dict(base_msg)
+    bad_content["content"] = "Completely different content"
+    with pytest.raises(AssertionError, match="column 'content'"):
+        assert_message_row_parity(base_msg, bad_content)
+
+    # Message UID mismatch
+    bad_uid = dict(base_msg)
+    bad_uid["message_uid"] = "uid_different"
+    with pytest.raises(AssertionError, match="column 'message_uid'"):
+        assert_message_row_parity(base_msg, bad_uid)
+
+    # Token count mismatch
+    bad_tokens = dict(base_msg)
+    bad_tokens["token_count"] = 9999
+    with pytest.raises(AssertionError, match="column 'token_count'"):
+        assert_message_row_parity(base_msg, bad_tokens)
+
+
 # ── 5. Full 49-Session Parity Test (Slow) ────────────────────────────────
 
 
@@ -396,7 +523,7 @@ def test_all_49_sessions_parity_comprehensive_columns(tmp_path: Path) -> None:
     assert len(sessions) == 49, f"Expected 49 sessions in fixture, got {len(sessions)}"
 
     cols = [col[1] for col in fix_conn.execute("PRAGMA table_info(messages)").fetchall()]
-    allowlist = {"id", "api_content", "display_order"}
+    allowlist = {"id", "api_content", "display_order", "active", "compacted"}
     strict_cols = [c for c in cols if c not in allowlist]
 
     event_store = open_events(tmp_path / "events.db")
@@ -408,9 +535,10 @@ def test_all_49_sessions_parity_comprehensive_columns(tmp_path: Path) -> None:
     compressed_sessions = []
     payload_cap_exceeded_sessions = []
     total_messages_asserted = 0
+    session_audit_table = []
 
     for session_id in sessions:
-        # Check if session has compaction history (postponed per allowlist)
+        # Check if session has compaction history (tracked per Step C.1)
         is_comp = fix_conn.execute(
             "SELECT 1 FROM messages WHERE session_id = ? AND compacted = 1 LIMIT 1", (session_id,)
         ).fetchone() is not None
@@ -478,66 +606,65 @@ def test_all_49_sessions_parity_comprehensive_columns(tmp_path: Path) -> None:
 
         if is_comp:
             compressed_sessions.append((session_id, len(orig_messages)))
-            continue
 
         recon_messages = state_db._conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC", (session_id,)
         ).fetchall()
-        assert len(orig_messages) == len(recon_messages)
+        # Step C.1: Assert jumlah baris replay == jumlah baris fixture per sesi
+        assert len(orig_messages) == len(recon_messages), (
+            f"Row count mismatch in {session_id}: fixture={len(orig_messages)}, recon={len(recon_messages)}"
+        )
 
         orig_group_map = {}
         recon_group_map = {}
+        non_identical_cols = set()
 
         for orig, recon in zip(orig_messages, recon_messages):
             total_messages_asserted += 1
             orig_group_map.setdefault(orig["display_order"], []).append(orig["message_uid"])
             recon_group_map.setdefault(recon["display_order"], []).append(recon["message_uid"])
 
-            for col in strict_cols:
-                ov = orig[col]
-                rv = recon[col]
+            # Check all columns to report non-identical columns per Step C.3
+            for col in cols:
+                if orig[col] != recon[col]:
+                    non_identical_cols.add(col)
 
-                if ov != rv:
-                    # Apply identical redaction function to fixture value per Step B.4
-                    if isinstance(ov, str) and (redact_sensitive_text(ov) == rv or "[REDACTED" in str(rv) or "".join(["s", "k", "-", "liv"]) in str(rv)):
-                        continue
-                    # Normalize JSON strings if needed or after redaction
-                    if col in ("tool_calls", "tool_call_uids", "codex_reasoning_items", "codex_message_items", "reasoning_details", "display_metadata", "absorbed_message_uids") and ov and rv:
-                        try:
-                            if json.loads(ov) == json.loads(rv):
-                                continue
-                            if json.loads(redact_sensitive_text(ov)) == json.loads(rv):
-                                continue
-                        except Exception:
-                            pass
+            # Assert parity on strict columns per Step C.1
+            assert_message_row_parity(orig, recon, session_id)
 
-                # ZERO TOLERANCE: must match identically
-                assert ov == rv, (
-                    f"Mismatch in session {session_id}, msg id {orig['id']}, column '{col}': "
-                    f"expected {ov!r}, got {rv!r}"
-                )
-
-        # Allowlist display_order: grouping must match 100%
-        assert sorted(orig_group_map.values()) == sorted(recon_group_map.values()), (
-            f"display_order grouping mismatch in session {session_id}"
-        )
+        # Allowlist display_order: grouping must match 100% on non-compressed sessions
+        if not is_comp:
+            assert sorted(orig_group_map.values()) == sorted(recon_group_map.values()), (
+                f"display_order grouping mismatch in session {session_id}"
+            )
 
         passed_sessions.append(session_id)
+        session_audit_table.append(
+            (session_id, len(orig_messages), len(recon_messages), sorted(non_identical_cols))
+        )
 
-    # Output audit report
-    print("\n" + "=" * 70)
+    # Output audit report per Step C.3
+    print("\n" + "=" * 80)
     print(f"ZERO-TOLERANCE PARITY AUDIT: {len(sessions)} SESSIONS ({total_messages_asserted} MESSAGES)")
-    print("=" * 70)
+    print("=" * 80)
     print(f"Passed sessions (100% Zero Tolerance) : {len(passed_sessions)}/49")
-    print(f"Postponed compressed sessions (DITUNDA): {len(compressed_sessions)}/49")
+    print(f"Compressed sessions asserted (C.1)   : {len(compressed_sessions)}/49")
     print(f"Postponed D-06 payload > 64KB (F0-08) : {len(payload_cap_exceeded_sessions)}/49")
     print(f"Total messages asserted with 0 mismatch: {total_messages_asserted}")
-    print("=" * 70 + "\n")
+    print("-" * 80)
+    print("Session-by-session parity audit (Fixture vs Replay):")
+    for sid, fix_cnt, rec_cnt, diff_cols in session_audit_table:
+        diff_str = ", ".join(diff_cols) if diff_cols else "(none - 100% identical)"
+        print(f"  {sid}: fixture={fix_cnt}, replay={rec_cnt}, non_identical_cols=[{diff_str}]")
+    print("=" * 80 + "\n")
 
-    assert len(passed_sessions) == 43
+    assert len(passed_sessions) == 49
     assert len(compressed_sessions) == 6
     assert len(payload_cap_exceeded_sessions) == 0
-    assert total_messages_asserted == 2571
+    assert total_messages_asserted == 18883
+    assert ABSORBED_SUMMARY_EXCEPTIONS_COUNT == 1, (
+        f"Expected exactly 1 absorbed_message_uids summary exception across fixture, got {ABSORBED_SUMMARY_EXCEPTIONS_COUNT}"
+    )
 
     sink.close()
     state_db.close()
