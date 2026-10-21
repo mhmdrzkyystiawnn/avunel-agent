@@ -74,8 +74,8 @@ def test_redact_payload_nested_structures() -> None:
     assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30" not in redacted["messages"][0]["content"]
     # Check nested JSON string
     nested_obj = json.loads(redacted["messages"][1]["nested_json"])
-    assert "".join(["g", "h", "p", "_", "12"]) in nested_obj["token"]
-    assert "..." in nested_obj["token"]
+    assert _fake_ghp() not in nested_obj["token"]
+    assert "***" in nested_obj["token"]
     # Check nested dict
     assert "".join(["s", "k", "-", "123"]) in redacted["metadata"]["key"]
     assert "..." in redacted["metadata"]["key"]
@@ -90,6 +90,20 @@ def test_redact_payload_preserves_innocent_data() -> None:
         "items": [1, 2, "three"],
     }
     assert redact_payload(payload) == payload
+
+
+def test_redact_payload_json_string_byte_identity() -> None:
+    """Secret inside JSON string is redacted; JSON string without secret is byte-for-byte identical."""
+    # Secret inside JSON string is redacted
+    secret_json = f'{{"api_key": "{_fake_ghp()}", "status": "ok"}}'
+    redacted_secret = redact_payload(secret_json)
+    assert _fake_ghp() not in redacted_secret
+    assert "***" in redacted_secret
+
+    # JSON string without secret is byte-per-byte identical (no json.loads/dumps formatting drift)
+    innocent_json = '{\n  "output": "line 1",\n  "count": 42,\n  "details": [1, 2, 3]\n}'
+    assert redact_payload(innocent_json) == innocent_json
+    assert innocent_json == redact_payload(innocent_json)
 
 
 def test_emit_pre_redacts_payload(store: EventStore) -> None:

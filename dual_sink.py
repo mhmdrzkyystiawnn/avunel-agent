@@ -80,8 +80,38 @@ class DualSink:
         else:
             self.event_store = None
 
-        self.last_projected_event_id: int = 0
+        if self.mode == "dual" and self.session_db is not None:
+            self._init_events_projected_table(self.session_db)
+
         self._underlying_rewind_to_message = self.session_db.rewind_to_message
+
+    @staticmethod
+    def _init_events_projected_table(session_db: SessionDB) -> None:
+        """Ensure events_projected table exists in state.db without bumping schema_version."""
+        if session_db is not None and hasattr(session_db, "_write_sql"):
+            session_db._write_sql(
+                "CREATE TABLE IF NOT EXISTS events_projected (event_id INTEGER PRIMARY KEY)"
+            )
+
+    @staticmethod
+    def is_event_projected(event_id: int, session_db: Optional[SessionDB] = None) -> bool:
+        """Check whether event_id is already in events_projected set in state.db."""
+        if session_db is None:
+            return False
+        row = session_db._read_one(
+            "SELECT 1 FROM events_projected WHERE event_id = ? LIMIT 1",
+            (event_id,),
+        )
+        return row is not None
+
+    @staticmethod
+    def mark_event_projected(event_id: int, session_db: Optional[SessionDB] = None) -> None:
+        """Mark event_id as projected in events_projected set in state.db."""
+        if session_db is not None and hasattr(session_db, "_write_sql"):
+            session_db._write_sql(
+                "INSERT OR IGNORE INTO events_projected (event_id) VALUES (?)",
+                (event_id,),
+            )
 
     def __getattr__(self, name: str) -> Any:
         """Delegate non-overridden attributes to the underlying session_db."""
@@ -152,7 +182,7 @@ class DualSink:
 
         # 2. Secondary write: project to state.db (fatal on failure)
         res = self.session_db.create_session(session_id, source, **kwargs)
-        self.last_projected_event_id = max(self.last_projected_event_id, event_id)
+        self.mark_event_projected(event_id, self.session_db)
         return res
 
     def ensure_session(
@@ -199,7 +229,7 @@ class DualSink:
         )
 
         res = self.session_db.ensure_session(session_id, source=source, model=model, **kwargs)
-        self.last_projected_event_id = max(self.last_projected_event_id, event_id)
+        self.mark_event_projected(event_id, self.session_db)
         return res
 
     def set_session_title(self, session_id: str, title: str, **kwargs: Any) -> bool:
@@ -228,7 +258,7 @@ class DualSink:
         )
 
         res = self.session_db.set_session_title(session_id, title)
-        self.last_projected_event_id = max(self.last_projected_event_id, event_id)
+        self.mark_event_projected(event_id, self.session_db)
         return res
 
     # ── Message Operations ──────────────────────────────────────────────
@@ -326,9 +356,9 @@ class DualSink:
             content=content,
             tool_call_uids=tool_call_uids,
             tool_call_uid=tool_call_uid,
+            projected_event_id=event_id,
             **kwargs,
         )
-        self.last_projected_event_id = max(self.last_projected_event_id, event_id)
         return row_id
 
     # ── Undo / Rewind Operations ────────────────────────────────────────
@@ -389,7 +419,7 @@ class DualSink:
 
         # 2. Secondary write: project to state.db (fatal on failure)
         outcome = self._underlying_rewind_to_message(session_id, target_message_id, **kwargs)
-        self.last_projected_event_id = max(self.last_projected_event_id, event_id)
+        self.mark_event_projected(event_id, self.session_db)
         return outcome
 
     def rewind_user_turn(
@@ -413,19 +443,34 @@ class DualSink:
         finally:
             self.session_db.rewind_to_message = orig_rewind  # type: ignore[assignment]
 
-    # ── Projection & Replay (Idempotent per Decision 3) ─────────────────
+    # ── Projection & Replay (Idempotent per Event ID Set) ───────────────
 
     def project_event(
         self,
-        event: Union[sqlite3.Row, Dict[str, Any]],
+        event: Union[int, sqlite3.Row, Dict[str, Any]],
         session_db: Optional[SessionDB] = None,
     ) -> bool:
-        """Project a single event into state.db idempotently using (session_id, message_uid).
+        """Project a single event into state.db idempotently using events_projected set.
 
-        No filter on active for message lookup.
+        Events already present in events_projected set are skipped.
         """
         target_db = session_db or self.session_db
-        event_dict = dict(event) if isinstance(event, sqlite3.Row) else event
+        self._init_events_projected_table(target_db)
+        if isinstance(event, int):
+            if not self.event_store:
+                return False
+            fetched = self.event_store.get_event(event)
+            if not fetched:
+                return False
+            event_dict = fetched
+        elif isinstance(event, sqlite3.Row):
+            event_dict = dict(event)
+        else:
+            event_dict = event
+        event_id = event_dict.get("id")
+        if event_id is not None and self.is_event_projected(event_id, target_db):
+            return True  # Already projected, idempotent no-op
+
         event_type = event_dict.get("type", "")
         session_id = event_dict.get("session_id")
 
@@ -461,6 +506,8 @@ class DualSink:
                 display_name=payload.get("display_name"),
                 transport_profile=payload.get("transport_profile"),
             )
+            if event_id is not None:
+                self.mark_event_projected(event_id, target_db)
             return True
 
         elif event_type == "session.title_updated":
@@ -468,6 +515,8 @@ class DualSink:
             if not s_id:
                 return False
             target_db.set_session_title(s_id, payload.get("title", ""))
+            if event_id is not None:
+                self.mark_event_projected(event_id, target_db)
             return True
 
         elif event_type == "message.appended":
@@ -475,15 +524,6 @@ class DualSink:
             message_uid = payload.get("message_uid")
             if not s_id:
                 return False
-
-            # Idempotency check using (session_id, message_uid) WITHOUT filter active (Decision 3)
-            if message_uid:
-                existing = target_db._read_one(
-                    "SELECT id FROM messages WHERE session_id = ? AND message_uid = ? LIMIT 1",
-                    (s_id, message_uid),
-                )
-                if existing is not None:
-                    return True  # Already projected, idempotent no-op
 
             # Restore offloaded fields from blob store if any were offloaded
             payload = restore_payload_fields(payload, blob_store=self.blob_store)
@@ -519,6 +559,7 @@ class DualSink:
                 display_kind=payload.get("display_kind"),
                 display_metadata=payload.get("display_metadata"),
                 _compressed_summary=bool(payload.get("_compressed_summary", False)),
+                projected_event_id=event_id,
             )
             return True
 
@@ -555,6 +596,11 @@ class DualSink:
                     "UPDATE sessions SET message_count = ?, tool_call_count = ? WHERE id = ?",
                     (msg_count, tool_count, s_id),
                 )
+                if event_id is not None:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO events_projected (event_id) VALUES (?)",
+                        (event_id,),
+                    )
 
             target_db._execute_write(_do_undo)
             return True
@@ -569,27 +615,36 @@ class DualSink:
         """Replay all effective events for session_id in id ASC order into target SessionDB."""
         assert self.event_store is not None, "event_store is required for replay"
         target_db = session_db or self.session_db
+        self._init_events_projected_table(target_db)
         events = self.event_store.session_events(session_id)
         projected = 0
         for ev in events:
-            if self.project_event(ev, target_db):
-                projected += 1
+            ev_id = ev.get("id") if isinstance(ev, dict) else ev["id"]
+            if ev_id is not None and not self.is_event_projected(ev_id, target_db):
+                if self.project_event(ev, target_db):
+                    projected += 1
+            elif ev_id is None:
+                if self.project_event(ev, target_db):
+                    projected += 1
         return projected
 
     def replay_pending(self, session_id: Optional[str] = None) -> int:
         """Catch up unprojected events from events.db into state.db.
 
-        Advances last_projected_event_id.
+        Projects all events not in events_projected set in id ASC order.
         """
         assert self.event_store is not None, "event_store is required for replay"
-        events = self.event_store.events_after(self.last_projected_event_id, limit=10000)
+        self._init_events_projected_table(self.session_db)
         if session_id:
-            events = [e for e in events if e.get("session_id") == session_id]
+            events = self.event_store.session_events(session_id)
+        else:
+            events = list(self.event_store.all_events())
 
         projected = 0
         for ev in events:
-            if self.project_event(ev, self.session_db):
-                self.last_projected_event_id = max(self.last_projected_event_id, ev["id"])
-                projected += 1
+            ev_id = ev.get("id") if isinstance(ev, dict) else ev["id"]
+            if ev_id is not None and not self.is_event_projected(ev_id, self.session_db):
+                if self.project_event(ev, self.session_db):
+                    projected += 1
 
         return projected
