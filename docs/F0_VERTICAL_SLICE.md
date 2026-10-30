@@ -93,7 +93,7 @@ Semua operasi menggunakan launcher dev sandbox terisolasi `scripts/avunel-sandbo
 ```
 Perintah ini akan:
 1. Memverifikasi integritas checksum `~/avunel/state.db`.
-2. Membuat sandbox terisolasi di `/tmp/`.
+2. Membuat sandbox terisolasi di `~/avunel-events-data` (atau `$AVUNEL_SANDBOX_DIR`).
 3. Menjalankan aliran percakapan dual-write (sesi, pesan, tool call, CAS blob, undo/rewind).
 4. Memvalidasi 100% parity antara `state.db` asli dan hasil replay projection dari `events.db`.
 5. Menjalankan `avunel serve` pada port 31032.
