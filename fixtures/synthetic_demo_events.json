@@ -1,0 +1,119 @@
+[
+  {
+    "type": "session.created",
+    "session_id": "demo_sess_001",
+    "actor": "cli:demo_sess_001",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_001",
+    "causation_id": null,
+    "payload": {
+      "session_id": "demo_sess_001",
+      "model": "gpt-4o",
+      "title": "Sesi Eksplorasi Arsitektur Avunel",
+      "source": "cli"
+    }
+  },
+  {
+    "type": "message.appended",
+    "session_id": "demo_sess_001",
+    "actor": "cli:demo_sess_001",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_001",
+    "causation_id": null,
+    "api_content_ref": "msg:uid_demo_001",
+    "payload": {
+      "session_id": "demo_sess_001",
+      "message_uid": "uid_demo_001",
+      "role": "user",
+      "content": "Halo Avunel! Tolong jelaskan arsitektur event log dan rahasia sk-live-secret-9876543210zyxwvu.",
+      "timestamp": 1730000001.0
+    }
+  },
+  {
+    "type": "message.appended",
+    "session_id": "demo_sess_001",
+    "actor": "agent:assistant",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_001",
+    "causation_id": null,
+    "api_content_ref": "msg:uid_demo_002",
+    "payload": {
+      "session_id": "demo_sess_001",
+      "message_uid": "uid_demo_002",
+      "role": "assistant",
+      "content": "Avunel mengadopsi event sourcing: setiap mutasi dicatat secara append-only di events.db, dan rahasia disanitasi sebelum ditulis ke disk.",
+      "timestamp": 1730000002.0
+    }
+  },
+  {
+    "type": "session.updated",
+    "session_id": "demo_sess_001",
+    "actor": "cli:demo_sess_001",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_002",
+    "causation_id": null,
+    "payload": {
+      "session_id": "demo_sess_001",
+      "title": "Arsitektur Event Sourcing Avunel"
+    }
+  },
+  {
+    "type": "tool.called",
+    "session_id": "demo_sess_001",
+    "actor": "agent:assistant",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_002",
+    "causation_id": null,
+    "payload": {
+      "session_id": "demo_sess_001",
+      "tool_name": "check_status",
+      "tool_call_id": "call_synth_001",
+      "tool_call_uid": "tuid_synth_001",
+      "arguments": "{\"service\": \"events\"}"
+    }
+  },
+  {
+    "type": "tool.completed",
+    "session_id": "demo_sess_001",
+    "actor": "agent:assistant",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_002",
+    "causation_id": null,
+    "payload": {
+      "session_id": "demo_sess_001",
+      "tool_name": "check_status",
+      "tool_call_id": "call_synth_001",
+      "tool_call_uid": "tuid_synth_001",
+      "result": "{\"status\": \"operational\"}"
+    }
+  },
+  {
+    "type": "message.appended",
+    "session_id": "demo_sess_001",
+    "actor": "cli:demo_sess_001",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_003",
+    "causation_id": null,
+    "api_content_ref": "msg:uid_demo_003",
+    "payload": {
+      "session_id": "demo_sess_001",
+      "message_uid": "uid_demo_003",
+      "role": "user",
+      "content": "Perintah salah yang akan di-undo.",
+      "timestamp": 1730000003.0
+    }
+  },
+  {
+    "type": "conversation.undone",
+    "session_id": "demo_sess_001",
+    "actor": "cli:demo_sess_001",
+    "branch_id": "00000000-0000-0000-0000-000000000000",
+    "correlation_id": "corr_004",
+    "causation_id": null,
+    "payload": {
+      "session_id": "demo_sess_001",
+      "target_message_uid": "uid_demo_003",
+      "source": "cli"
+    }
+  }
+]

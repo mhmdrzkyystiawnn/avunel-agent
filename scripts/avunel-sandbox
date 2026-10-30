@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Avunel Dev Sandbox Launcher (G0a-2 Compliant)
+# Strictly isolated from production ~/avunel runtime.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SANDBOX_DIR="${AVUNEL_SANDBOX_DIR:-$HOME/avunel-events-data}"
+PROD_DIR="$HOME/avunel"
+
+# Hard Production Guard
+PROD_REAL="$(readlink -f "$PROD_DIR" 2>/dev/null || echo "$PROD_DIR")"
+SANDBOX_REAL="$(readlink -f "$SANDBOX_DIR" 2>/dev/null || echo "$SANDBOX_DIR")"
+
+if [[ "$SANDBOX_REAL" == "$PROD_REAL" || "$SANDBOX_REAL" == "$PROD_REAL/"* ]]; then
+    echo "FATAL ISOLATION GUARD: Sandbox path ($SANDBOX_REAL) points to or inside production runtime ($PROD_REAL)!" >&2
+    echo "Refusing to execute to protect production data." >&2
+    exit 1
+fi
+
+mkdir -p "$SANDBOX_DIR"
+
+export AVUNEL_HOME="$SANDBOX_DIR"
+export HERMES_HOME="$SANDBOX_DIR"
+export AVUNEL_STATE_MODE="dual"
+export PYTHONPATH="$REPO_DIR"
+
+PYTHON_BIN="$REPO_DIR/.venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    PYTHON_BIN="python3"
+fi
+
+exec "$PYTHON_BIN" "$REPO_DIR/scripts/dev_launcher.py" "$@"
