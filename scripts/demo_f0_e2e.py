@@ -80,6 +80,11 @@ def run_e2e_demo(
         sandbox_dir = Path(tempfile.mkdtemp(prefix="avunel_f0_e2e_demo_"))
         clean_temp = True
 
+    orig_env = {
+        k: os.environ.get(k)
+        for k in ("AVUNEL_HOME", "HERMES_HOME", "AVUNEL_STATE_MODE")
+    }
+
     try:
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         print(f"\n[SANDBOX] Initialized isolated testbed: {sandbox_dir}")
@@ -266,6 +271,11 @@ def run_e2e_demo(
         return True
 
     finally:
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         if clean_temp and sandbox_dir and sandbox_dir.exists():
             shutil.rmtree(sandbox_dir, ignore_errors=True)
 

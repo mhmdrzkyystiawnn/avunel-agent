@@ -59,6 +59,11 @@ def run_g0a2_verification(sandbox_dir: Optional[Path] = None) -> bool:
         sandbox_dir = Path(tempfile.mkdtemp(prefix="avunel_sandbox_g0a2_"))
         clean_temp = True
 
+    orig_env = {
+        k: os.environ.get(k)
+        for k in ("AVUNEL_HOME", "HERMES_HOME", "AVUNEL_STATE_MODE")
+    }
+
     try:
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         print(f"[SANDBOX] Working in isolated directory: {sandbox_dir}")
@@ -249,6 +254,11 @@ def run_g0a2_verification(sandbox_dir: Optional[Path] = None) -> bool:
         return True
 
     finally:
+        for k, v in orig_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         if clean_temp and sandbox_dir.exists():
             shutil.rmtree(sandbox_dir, ignore_errors=True)
 
